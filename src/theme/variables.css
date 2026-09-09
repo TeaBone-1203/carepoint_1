@@ -1,0 +1,33 @@
+/* ============================================================
+   CarePoint — Design Tokens
+   "The Neighborhood Apothecary"
+   ============================================================ */
+
+:root {
+  --cp-terracotta:       #C17F59;
+  --cp-terracotta-dark:  #A3623F;
+  --cp-terracotta-tint:  #F3E2D6;
+  --cp-sage:             #7D9B76;
+  --cp-sage-dark:        #5F7A59;
+  --cp-sage-tint:        #E4EAE1;
+  --cp-yarrow:           #DBAF4A;
+  --cp-yarrow-tint:      #FBEEDD;
+  --cp-parchment:        #FAF7F2;
+  --cp-surface:          #FFFCF8;
+  --cp-walnut:           #2C1E16;
+  --cp-walnut-soft:      #5C4A3E;
+  --cp-walnut-faint:     #6E5D4F;
+  --cp-stone:            #E8E3DD;
+  --cp-stone-dark:       #D8D1C8;
+  --cp-danger:           #B25C4E;
+  --cp-danger-tint:      #F3E1DC;
+
+  --cp-font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --cp-font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                     'Helvetica Neue', Arial, sans-serif;
+
+  --cp-radius:    16px 8px 16px 8px;
+  --cp-radius-lg: 22px 10px 22px 10px;
+  --cp-shadow:    0 4px 18px rgba(44, 30, 22, 0.07);
+  --cp-shadow-lg: 0 10px 28px rgba(44, 30, 22, 0.12);
+}
