@@ -9,22 +9,27 @@ import {
   medicine, pharmacy, customer, staffMember, adminUser,
   orderTotal, fmtDate, money, STATUS_LABEL,
   customerName, pharmacyName, CURRENCIES, logAudit,
+  medBrand, CATEGORIES,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
+import { saveSnapshot } from '../data/persistence';
 
-// ── Registry (pending pharmacy approvals) ────────────────────
+// ── Registry (pharmacy registry + approvals) ────────────────
 function Registry({ actor, dispatch, toast }: { actor: string; dispatch: any; toast: any }) {
   const pending = DB.staff.filter(s => s.status === 'pending');
+  const allPharmas = [...DB.pharmacies].sort((a, b) => a.name.localeCompare(b.name));
 
   function approve(staffId: string) {
     const s = staffMember(staffId);
     if (!s) return;
     if (!window.confirm('Approve this pharmacy?')) return;
     s.status = 'active';
+    s.role = 'pharmacyAdmin';   // the registrant becomes the Pharmacy Admin
     const ph = pharmacy(s.pharmacyId);
     if (ph) ph.status = 'approved';
-    logAudit(actor, 'Approved pharmacy ' + (ph ? ph.name : s.name));
+    logAudit(actor, 'Approved pharmacy ' + (ph ? ph.name : s.name) + ' — ' + s.name + ' onboarded as Pharmacy Admin');
     toast((ph ? ph.name : 'Pharmacy') + ' approved and now live!', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -37,47 +42,90 @@ function Registry({ actor, dispatch, toast }: { actor: string; dispatch: any; to
     if (ph) ph.status = 'rejected' as any;
     logAudit(actor, 'Rejected pharmacy ' + (ph ? ph.name : s.name));
     toast('Registration rejected.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
-  if (pending.length === 0) {
-    return (
-      <div>
-        <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: '0 0 20px' }}>Registry</h2>
-        <div className="cp-empty">
-          <div className="cp-empty-icon">✅</div>
-          <div className="cp-empty-title">All caught up</div>
-          <div className="cp-empty-sub">No pending registrations.</div>
-        </div>
-      </div>
-    );
+  function setPharmacyStatus(phId: string, next: 'approved' | 'rejected') {
+    const ph = pharmacy(phId);
+    if (!ph) return;
+    if (!window.confirm((next === 'approved' ? 'Activate ' : 'Suspend ') + ph.name + '?')) return;
+    ph.status = next;
+    DB.staff.filter(s => s.pharmacyId === phId && s.status !== 'pending').forEach(s => { s.status = next === 'approved' ? 'active' : 'disabled'; });
+    logAudit(actor, (next === 'approved' ? 'Activated ' : 'Suspended ') + 'pharmacy ' + ph.name);
+    toast(ph.name + ' ' + (next === 'approved' ? 'activated.' : 'suspended.'), 'success');
+    void saveSnapshot();
+    dispatch({ type: 'SET_SEARCH', payload: {} });
+  }
+
+  function phStatusBadge(status: string) {
+    if (status === 'approved')   return <span className="cp-badge cp-badge-approved">Active</span>;
+    if (status === 'pending')    return <span className="cp-badge cp-badge-pending">Pending</span>;
+    return <span className="cp-badge cp-badge-inactive">Suspended</span>;
   }
 
   return (
     <div>
       <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: '0 0 4px' }}>Registry</h2>
-      <p style={{ fontSize: 13, color: 'var(--cp-walnut-faint)', margin: '0 0 16px' }}>New pharmacies waiting for approval.</p>
-      <div className="cp-card">
-        {pending.map(s => {
+      <p style={{ fontSize: 13, color: 'var(--cp-walnut-faint)', margin: '0 0 16px' }}>
+        Approve new pharmacies and manage every pharmacy on the platform.
+      </p>
+
+      {/* Pending approvals */}
+      <div className="cp-card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, fontSize: 15 }}>🕐 Pending approvals {pending.length ? `(${pending.length})` : ''}</h3>
+        {pending.length === 0 ? (
+          <p className="cp-hint" style={{ margin: 0 }}>No pending registrations. ✅</p>
+        ) : pending.map(s => {
           const ph = pharmacy(s.pharmacyId);
           return (
-            <div key={s.id} className="cp-row-between" style={{ padding: '15px 0', borderBottom: '1px solid var(--cp-stone)' }}>
+            <div key={s.id} className="cp-row-between" style={{ padding: '14px 0', borderTop: '1px solid var(--cp-stone)' }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <span style={{ color: 'var(--cp-terracotta)', marginTop: 2, fontSize: 20 }}>🏥</span>
                 <div>
                   <strong style={{ fontFamily: 'var(--cp-font-display)', fontSize: 15 }}>{ph ? ph.name : 'Unknown'}</strong><br />
                   <span className="cp-hint">{ph ? `${ph.location} · ${ph.hours}` : ''}</span><br />
-                  <span className="cp-hint">Registered by {s.name} ({s.email})</span>
-                  <span className="cp-badge cp-badge-pending" style={{ marginLeft: 8 }}>pending</span>
+                  <span className="cp-hint">Contact: {s.name} ({s.email})</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="cp-btn cp-btn-sage cp-btn-sm" onClick={() => approve(s.id)}>Approve</button>
+                <button className="cp-btn cp-btn-sage cp-btn-sm" onClick={() => approve(s.id)}>✓ Approve &amp; onboard admin</button>
                 <button className="cp-btn cp-btn-danger cp-btn-sm" onClick={() => reject(s.id)}>Reject</button>
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* All pharmacies */}
+      <div className="cp-card">
+        <h3 style={{ marginTop: 0, fontSize: 15 }}>🏥 All pharmacies ({allPharmas.length})</h3>
+        <div className="cp-table-wrap">
+          <table className="cp-table">
+            <thead><tr><th>Pharmacy</th><th>Location</th><th>Pharmacy Admin</th><th className="text-center">Status</th><th className="col-actions"></th></tr></thead>
+            <tbody>
+              {allPharmas.map(ph => {
+                const managers = DB.staff.filter(s => s.pharmacyId === ph.id);
+                const manager  = managers.find(s => s.role === 'pharmacyAdmin' && s.status === 'active') ?? managers[0];
+                return (
+                  <tr key={ph.id}>
+                    <td><strong style={{ fontFamily: 'var(--cp-font-display)' }}>{ph.name}</strong></td>
+                    <td style={{ fontSize: 12.5 }}>{ph.location}</td>
+                    <td style={{ fontSize: 12.5 }}>
+                      {manager ? <>{manager.name}<br /><span className="cp-hint">{manager.email}</span></> : <span className="cp-hint">(none)</span>}
+                    </td>
+                    <td className="text-center">{phStatusBadge(ph.status)}</td>
+                    <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      {ph.status === 'approved'
+                        ? <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setPharmacyStatus(ph.id, 'rejected')}>Suspend</button>
+                        : <button className="cp-btn cp-btn-sage cp-btn-sm" onClick={() => setPharmacyStatus(ph.id, 'approved')}>Activate</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -97,6 +145,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     if (type === 'staff') { const ph = pharmacy((rec as any).pharmacyId); if (ph) ph.status = rec.status === 'active' ? 'approved' : 'rejected' as any; }
     logAudit(actor, (rec.status === 'active' ? 'Enabled ' : 'Disabled ') + (type === 'customer' ? 'customer' : 'pharmacy') + ' account ' + rec.name);
     toast('Account ' + (rec.status === 'active' ? 'activated' : 'disabled') + '.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -117,6 +166,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     }
     logAudit(actor, 'Removed ' + (type === 'customer' ? 'customer' : 'pharmacy') + ' account ' + removedName);
     toast('Account removed.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -128,7 +178,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     if (!n || !e) { toast('Name and email required.', 'error'); return; }
     c.name = n; c.email = e; c.status = s as any;
     logAudit(actor, 'Updated customer account ' + n);
-    toast('Customer updated.', 'success'); setEditCustId(null); dispatch({ type: 'SET_SEARCH', payload: {} });
+    toast('Customer updated.', 'success'); setEditCustId(null); void saveSnapshot(); dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
   function addAdmin() {
@@ -138,7 +188,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     if (!n || !e || !p) { toast('Fill in all fields.', 'error'); return; }
     DB.admins.push({ id: 'a' + counters.admin++, name: n, email: e, password: p });
     logAudit(actor, 'Added site administrator ' + n);
-    setAddingAdmin(false); toast('Admin created.', 'success'); dispatch({ type: 'SET_SEARCH', payload: {} });
+    setAddingAdmin(false); toast('Admin created.', 'success'); void saveSnapshot(); dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
   function saveAdmin(id: string) {
@@ -149,7 +199,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     if (!n || !e) return;
     a.name = n; a.email = e; if (p) (a as any).password = p;
     logAudit(actor, 'Updated site administrator ' + n);
-    toast('Admin updated.', 'success'); setEditAdminId(null); dispatch({ type: 'SET_SEARCH', payload: {} });
+    toast('Admin updated.', 'success'); setEditAdminId(null); void saveSnapshot(); dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
   function removeAdmin(id: string) {
@@ -159,7 +209,31 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     const a = adminUser(id);
     DB.admins = DB.admins.filter(a => a.id !== id);
     logAudit(actor, 'Deleted site administrator ' + (a ? a.name : id));
-    toast('Admin removed.', 'success'); dispatch({ type: 'SET_SEARCH', payload: {} });
+    toast('Admin removed.', 'success'); void saveSnapshot(); dispatch({ type: 'SET_SEARCH', payload: {} });
+  }
+
+  function setStaffRole(id: string, role: 'pharmacyAdmin' | 'staff') {
+    const s = staffMember(id);
+    if (!s) return;
+    if (s.status === 'pending') { toast('Resolve pending first.', 'error'); return; }
+    s.role = role;
+    logAudit(actor, 'Set ' + s.name + ' role → ' + (role === 'pharmacyAdmin' ? 'Pharmacy Admin' : 'Staff'));
+    toast(s.name + ' is now a ' + (role === 'pharmacyAdmin' ? 'pharmacy admin' : 'staff member') + '.', 'success');
+    void saveSnapshot();
+    dispatch({ type: 'SET_SEARCH', payload: {} });
+  }
+
+  function resetStaffPassword(id: string) {
+    const s = staffMember(id);
+    if (!s) return;
+    const p = window.prompt('New password for ' + s.name + ':');
+    if (p === null) return;
+    if (p.length < 6) { toast('Password must be at least 6 characters.', 'error'); return; }
+    s.password = p;
+    logAudit(actor, 'Reset password for ' + s.name);
+    toast('Password updated.', 'success');
+    void saveSnapshot();
+    dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
   return (
@@ -258,22 +332,31 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
         </div>
       </div>
 
-      {/* Staff & Pharmacies */}
+      {/* Pharmacy Admins & Staff */}
       <div className="cp-card">
-        <h3 style={{ marginTop: 0, fontSize: 15 }}>Staff &amp; Pharmacies</h3>
+        <h3 style={{ marginTop: 0, fontSize: 15 }}>Pharmacy Admins &amp; Staff</h3>
+        <p className="cp-hint" style={{ marginTop: -6 }}>Pharmacy Admins run the branch portal and manage their own team. Reset passwords, change roles, or disable accounts from here.</p>
         <div className="cp-table-wrap">
           <table className="cp-table">
-            <thead><tr><th>Staff</th><th>Pharmacy</th><th className="text-center">Staff status</th><th className="text-center">Pharmacy status</th><th className="col-actions"></th></tr></thead>
+            <thead><tr><th>Staff</th><th>Pharmacy</th><th className="text-center">Role</th><th className="text-center">Staff status</th><th className="text-center">Pharmacy status</th><th className="col-actions"></th></tr></thead>
             <tbody>
               {DB.staff.map(s => {
                 const ph = pharmacy(s.pharmacyId);
+                const roleBadge = s.role === 'pharmacyAdmin'
+                  ? <span className="cp-badge cp-badge-active">Pharmacy Admin</span>
+                  : <span className="cp-badge cp-badge-confirmed">Staff</span>;
                 return (
                   <tr key={s.id}>
-                    <td>{s.name}<br /><span className="cp-hint">{s.email}</span></td>
+                    <td>{s.name}<br /><span className="cp-hint">{s.email}{s.id === 's1' ? ' · (demo pharm admin)' : ''}</span></td>
                     <td>{ph ? ph.name : <span className="cp-hint">(orphaned)</span>}</td>
+                    <td className="text-center">{roleBadge}</td>
                     <td className="text-center"><span className={`cp-badge cp-badge-${s.status === 'active' ? 'active' : s.status === 'pending' ? 'pending' : 'inactive'}`}>{s.status}</span></td>
                     <td className="text-center"><span className={`cp-badge cp-badge-${ph?.status === 'approved' ? 'approved' : ph?.status === 'rejected' ? 'cancelled' : 'pending'}`}>{ph?.status ?? '—'}</span></td>
-                    <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => resetStaffPassword(s.id)}>Reset pwd</button>
+                      <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setStaffRole(s.id, s.role === 'pharmacyAdmin' ? 'staff' : 'pharmacyAdmin')}>
+                        {s.role === 'pharmacyAdmin' ? 'Make staff' : 'Make admin'}
+                      </button>
                       {s.status !== 'pending' && <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => toggleAccount('staff', s.id)}>{s.status === 'active' ? 'Disable' : 'Activate'}</button>}
                       <button className="cp-btn cp-btn-danger cp-btn-sm" onClick={() => removeAccount('staff', s.id)}>Remove</button>
                     </td>
@@ -290,12 +373,16 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
 
 // ── Herbal Index (platform-wide catalog) ─────────────────────
 function HerbalIndex({ actor, dispatch, toast }: { actor: string; dispatch: any; toast: any }) {
+  const [editingId, setEditingId] = useState<string | null>(null); // 'new' | medId | null
+  const approved = DB.pharmacies.filter(p => p.status === 'approved');
+
   function toggleRx(id: string) {
     const m = medicine(id); if (!m) return;
     m.prescription = !m.prescription;
     if (m.prescription) m.category = 'Prescription';
     logAudit(actor, 'Marked ' + m.name + ' as ' + (m.prescription ? 'prescription (Rx)' : 'over-the-counter (OTC)'));
     toast('Updated to ' + (m.prescription ? 'Rx' : 'OTC') + '.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
   function removeFromCatalog(id: string) {
@@ -304,16 +391,82 @@ function HerbalIndex({ actor, dispatch, toast }: { actor: string; dispatch: any;
     DB.medicines = DB.medicines.filter(x => x.id !== id);
     logAudit(actor, 'Removed listing ' + (m ? m.name : id) + ' from the platform catalog');
     toast('Removed from catalog.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
+
+  function save() {
+    const name = (document.getElementById('idxName') as HTMLInputElement)?.value?.trim();
+    const brand = (document.getElementById('idxBrand') as HTMLInputElement)?.value?.trim();
+    const cat  = (document.getElementById('idxCat') as HTMLSelectElement)?.value;
+    const price = parseFloat((document.getElementById('idxPrice') as HTMLInputElement)?.value);
+    const stock = parseInt((document.getElementById('idxStock') as HTMLInputElement)?.value, 10);
+    const isRx  = (document.getElementById('idxRx') as HTMLInputElement)?.checked;
+    if (!name || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) { toast('Valid name, price, and stock required.', 'error'); return; }
+    if (editingId && editingId !== 'new') {
+      const m = medicine(editingId);
+      if (m) { m.name = name; m.brand = brand || undefined; m.category = isRx ? 'Prescription' : cat; m.price = price; m.stock = stock; m.prescription = isRx; }
+      logAudit(actor, 'Edited catalog listing ' + name);
+      toast('Listing updated.', 'success');
+    } else {
+      const phEl = document.getElementById('idxPh') as HTMLSelectElement;
+      if (!phEl?.value) { toast('Choose a pharmacy.', 'error'); return; }
+      const newest = DB.medicines.reduce((mx, m) => Math.max(mx, m.addedAt || 0), 0);
+      DB.medicines.push({ id: 'm' + counters.med++, pharmacyId: phEl.value, name, brand: brand || undefined, category: isRx ? 'Prescription' as any : cat, price, stock, prescription: isRx, sold: 0, addedAt: newest + 1, status: 'active' });
+      logAudit(actor, 'Added catalog listing ' + name + ' (' + (phEl.options[phEl.selectedIndex]?.text ?? '') + ')');
+      toast('Listing added to the catalog.', 'success');
+    }
+    setEditingId(null);
+    void saveSnapshot();
+    dispatch({ type: 'SET_SEARCH', payload: {} });
+  }
+
+  const editMed = editingId && editingId !== 'new' ? medicine(editingId) : null;
+
   return (
     <div>
-      <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: '0 0 4px' }}>Herbal Index</h2>
-      <p style={{ fontSize: 13, color: 'var(--cp-walnut-faint)', margin: '0 0 16px' }}>Platform-wide catalog — manage prescriptions and remove items.</p>
+      <div className="cp-row-between" style={{ marginBottom: 4 }}>
+        <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: 0 }}>Herbal Index</h2>
+        {!editingId && <button className="cp-btn cp-btn-primary" onClick={() => setEditingId('new')}>➕ Add listing</button>}
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--cp-walnut-faint)', margin: '0 0 16px' }}>Platform-wide catalog — add, edit, manage prescriptions, and remove items.</p>
+
+      {editingId && (
+        <div className="cp-card" style={{ marginBottom: 16, border: '1.5px solid var(--cp-terracotta)' }}>
+          <div className="cp-row-between">
+            <h3 style={{ margin: 0, fontSize: 15 }}>{editingId === 'new' ? 'Add listing' : 'Edit — ' + editMed?.name}</h3>
+            <button className="cp-btn-link" onClick={() => setEditingId(null)}>Cancel</button>
+          </div>
+          <div className="cp-divider" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
+            <div className="cp-field" style={{ marginBottom: 0 }}><label>Name</label><input id="idxName" type="text" defaultValue={editMed?.name ?? ''} placeholder="e.g. Lagundi Syrup 120ml" /></div>
+            <div className="cp-field" style={{ marginBottom: 0 }}><label>Brand</label><input id="idxBrand" type="text" defaultValue={editMed ? medBrand(editMed) : ''} placeholder="e.g. CarePoint Generics" /></div>
+            <div className="cp-field" style={{ marginBottom: 0 }}><label>Category</label>
+              <select id="idxCat" defaultValue={editMed?.category ?? CATEGORIES[0]}>
+                {[...CATEGORIES, 'Prescription'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="cp-field" style={{ marginBottom: 0 }}><label>Price (₱)</label><input id="idxPrice" type="number" min={0} defaultValue={editMed?.price ?? ''} /></div>
+            <div className="cp-field" style={{ marginBottom: 0 }}><label>Stock</label><input id="idxStock" type="number" min={0} defaultValue={editMed?.stock ?? ''} /></div>
+            {editingId === 'new' && (
+              <div className="cp-field" style={{ marginBottom: 0 }}><label>Pharmacy</label>
+                <select id="idxPh" defaultValue={approved[0]?.id ?? ''}>
+                  {approved.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="cp-checkbox-row" style={{ alignItems: 'center' }}><input id="idxRx" type="checkbox" defaultChecked={editMed?.prescription ?? false} /><label htmlFor="idxRx">Requires prescription</label></div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <button className="cp-btn cp-btn-primary" onClick={save}>{editingId === 'new' ? 'Add listing' : 'Save changes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="cp-card">
         <div className="cp-table-wrap">
           <table className="cp-table">
-            <thead><tr><th>Name</th><th>Pharmacy</th><th>Category</th><th className="text-right">Price</th><th className="text-center">Type</th><th className="col-actions"></th></tr></thead>
+            <thead><tr><th>Name</th><th>Pharmacy</th><th>Brand</th><th>Category</th><th className="text-right">Price</th><th className="text-center">Type</th><th className="col-actions"></th></tr></thead>
             <tbody>
               {DB.medicines.map(m => {
                 const ph = pharmacy(m.pharmacyId);
@@ -321,10 +474,12 @@ function HerbalIndex({ actor, dispatch, toast }: { actor: string; dispatch: any;
                   <tr key={m.id}>
                     <td>{m.name}</td>
                     <td>{ph ? ph.name : <span className="cp-hint">(orphaned)</span>}</td>
+                    <td style={{ fontSize: 12.5 }}>{medBrand(m)}</td>
                     <td>💊 {m.category}</td>
                     <td className="text-right">{money(m.price)}</td>
                     <td className="text-center"><span className={`cp-badge cp-badge-${m.prescription ? 'pending' : 'active'}`}>{m.prescription ? 'Rx' : 'OTC'}</span></td>
-                    <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setEditingId(m.id)}>Edit</button>
                       <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => toggleRx(m.id)}>{m.prescription ? '→ OTC' : '→ Rx'}</button>
                       <button className="cp-btn cp-btn-danger cp-btn-sm" onClick={() => removeFromCatalog(m.id)}>Remove</button>
                     </td>
@@ -369,6 +524,17 @@ function AllOrders() {
 }
 
 // ── Flags ─────────────────────────────────────────────────────
+function flagTargetLabel(f: { targetType?: string; targetId?: string }) {
+  const t = f.targetType ?? 'account';
+  const id = f.targetId ?? '';
+  if (t === 'pharmacy') { const p = pharmacy(id); return { icon: '🏥', label: p ? p.name : id, sub: p ? p.location : '' }; }
+  if (t === 'medicine') { const m = medicine(id); return { icon: '💊', label: m ? m.name : id, sub: m ? pharmacyName(m.pharmacyId) : '' }; }
+  if (t === 'order')    { const o = DB.orders.find(o => o.id === id); return { icon: '🧾', label: o ? 'Order #' + o.id.replace('o', '') : id, sub: o ? customerName(o.customerId) : '' }; }
+  if (t === 'customer') { const c = customer(id); return { icon: '👤', label: c ? c.name : id, sub: c ? c.email : '' }; }
+  const s = staffMember(id) ?? adminUser(id) ?? customer(id);
+  return { icon: '🏥', label: s ? s.name : id, sub: '' };
+}
+
 function Flags({ dispatch, toast }: { dispatch: any; toast: any }) {
   if (DB.flags.length === 0) {
     return (
@@ -383,12 +549,14 @@ function Flags({ dispatch, toast }: { dispatch: any; toast: any }) {
       <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: '0 0 16px' }}>Flags</h2>
       <div className="cp-card">
         {DB.flags.map(f => {
-          const target = (f as any).targetType === 'customer' ? customer((f as any).targetId) : staffMember((f as any).targetId);
+          const tl = flagTargetLabel(f as any);
           return (
             <div key={f.id} className="cp-row-between" style={{ padding: '14px 0', borderBottom: '1px solid var(--cp-stone)' }}>
               <div>
-                <strong>{target?.name ?? 'Unknown'}</strong> <span className="cp-hint">({(f as any).targetType})</span><br />
-                <span className="cp-hint">{(f as any).reason ?? f.note}</span>
+                <strong>{tl.icon} {tl.label}</strong> <span className="cp-hint">({(f as any).targetType ?? 'account'})</span>
+                {tl.sub && <div className="cp-hint">{tl.sub}</div>}
+                <div className="cp-hint" style={{ marginTop: 4 }}>{(f as any).reason ?? f.note}</div>
+                {f.type && <span className={`cp-badge ${f.type === 'account' ? 'cp-badge-pending' : f.type === 'product' ? 'cp-badge-withdrawn' : 'cp-badge-cancelled'}`} style={{ marginTop: 6 }}>{f.type}</span>}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span className={`cp-badge cp-badge-${f.status === 'open' ? 'pending' : 'completed'}`}>{f.status}</span>
@@ -396,6 +564,7 @@ function Flags({ dispatch, toast }: { dispatch: any; toast: any }) {
                   <button className="cp-btn cp-btn-sage cp-btn-sm" onClick={() => {
                     f.status = 'resolved';
                     toast('Flag resolved.', 'success');
+                    void saveSnapshot();
                     dispatch({ type: 'SET_SEARCH', payload: {} });
                   }}>Resolve</button>
                 )}
@@ -408,7 +577,7 @@ function Flags({ dispatch, toast }: { dispatch: any; toast: any }) {
   );
 }
 
-// ── Tally (Reports) ───────────────────────────────────────────
+// ── Tally (Reports & analytics) ──────────────────────────────
 function Tally() {
   const active = DB.pharmacies.filter(p => p.status === 'approved').length;
   const activeCust = DB.customers.filter(c => c.status === 'active').length;
@@ -417,28 +586,96 @@ function Tally() {
     s, n: DB.orders.filter(o => o.status === s).length,
   }));
   const maxN = Math.max(1, ...byStatus.map(b => b.n));
+
+  // Revenue
+  const completed = DB.orders.filter(o => o.status === 'completed');
+  const gmv = completed.reduce((s, o) => s + orderTotal(o), 0);
+  const aov = completed.length ? gmv / completed.length : 0;
+  const refunds = DB.returns.filter(r => r.status === 'refunded').reduce((s, r) => s + ((r as any).refundAmount || 0), 0);
+
+  // Revenue by pharmacy
+  const byPh: Record<string, { orders: number; revenue: number }> = {};
+  completed.forEach(o => {
+    if (!byPh[o.pharmacyId]) byPh[o.pharmacyId] = { orders: 0, revenue: 0 };
+    byPh[o.pharmacyId].orders++;
+    byPh[o.pharmacyId].revenue += orderTotal(o);
+  });
+  const phRows = Object.entries(byPh)
+    .map(([id, v]) => ({ id, name: pharmacyName(id), ...v }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  // Top product
+  const perf: Record<string, { units: number; revenue: number }> = {};
+  completed.forEach(o => o.items.forEach(it => {
+    if (!perf[it.medId]) perf[it.medId] = { units: 0, revenue: 0 };
+    perf[it.medId].units += it.qty;
+    perf[it.medId].revenue += it.price * it.qty;
+  }));
+  const top = Object.entries(perf).sort((a, b) => b[1].revenue - a[1].revenue)[0];
+  const topMed = top ? medicine(top[0]) : null;
+
   return (
     <div>
       <h2 style={{ fontFamily: 'var(--cp-font-display)', fontSize: 24, margin: '0 0 16px' }}>Tally</h2>
       <div className="cp-stat-grid" style={{ marginBottom: 16 }}>
+        <div className="cp-ledger-card"><div className="stat-num">{money(gmv)}</div><div className="stat-label">Gross sales (GMV)</div></div>
+        <div className="cp-ledger-card"><div className="stat-num">{money(aov)}</div><div className="stat-label">Avg. order value</div></div>
+        <div className="cp-ledger-card"><div className="stat-num">{completed.length}</div><div className="stat-label">Completed orders</div></div>
+        <div className="cp-ledger-card"><div className="stat-num">{money(refunds)}</div><div className="stat-label">Refunded</div></div>
         <div className="cp-ledger-card"><div className="stat-num">{total}</div><div className="stat-label">Total orders</div></div>
         <div className="cp-ledger-card"><div className="stat-num">{active}</div><div className="stat-label">Active pharmacies</div></div>
         <div className="cp-ledger-card"><div className="stat-num">{activeCust}</div><div className="stat-label">Active customers</div></div>
         <div className="cp-ledger-card"><div className="stat-num">{DB.reviews.length}</div><div className="stat-label">Total ratings</div></div>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16, marginBottom: 16 }}>
+        <div className="cp-card">
+          <h3 style={{ marginTop: 0, fontSize: 15 }}>Orders by status</h3>
+          {byStatus.map(b => (
+            <div key={b.s} style={{ marginBottom: 10 }}>
+              <div className="cp-row-between" style={{ fontSize: 12.5, marginBottom: 4 }}>
+                <span style={{ textTransform: 'capitalize' }}>{b.s}</span>
+                <span>{b.n}</span>
+              </div>
+              <div style={{ background: 'var(--cp-stone)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                <div style={{ width: `${(b.n / maxN) * 100}%`, background: 'var(--cp-terracotta)', height: '100%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="cp-card">
+          <h3 style={{ marginTop: 0, fontSize: 15 }}>⭐ Top product</h3>
+          {topMed ? (
+            <div>
+              <div style={{ fontFamily: 'var(--cp-font-display)', fontSize: 18, marginBottom: 2 }}>{topMed.name}</div>
+              <div className="cp-hint" style={{ marginBottom: 8 }}>by {pharmacyName(topMed.pharmacyId)} · {medBrand(topMed)}</div>
+              <div className="cp-stat-grid" style={{ gap: 8 }}>
+                <div className="cp-stat-jar"><div className="stat-num">{top![1].units}</div><div className="stat-label">Units sold</div></div>
+                <div className="cp-stat-jar"><div className="stat-num">{money(top![1].revenue)}</div><div className="stat-label">Revenue</div></div>
+              </div>
+            </div>
+          ) : <p className="cp-hint">No completed sales yet.</p>}
+        </div>
+      </div>
+
       <div className="cp-card">
-        <h3 style={{ marginTop: 0, fontSize: 15 }}>Orders by status</h3>
-        {byStatus.map(b => (
-          <div key={b.s} style={{ marginBottom: 10 }}>
-            <div className="cp-row-between" style={{ fontSize: 12.5, marginBottom: 4 }}>
-              <span style={{ textTransform: 'capitalize' }}>{b.s}</span>
-              <span>{b.n}</span>
-            </div>
-            <div style={{ background: 'var(--cp-stone)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
-              <div style={{ width: `${(b.n / maxN) * 100}%`, background: 'var(--cp-terracotta)', height: '100%' }} />
-            </div>
-          </div>
-        ))}
+        <h3 style={{ marginTop: 0, fontSize: 15 }}>Revenue by pharmacy</h3>
+        {phRows.length === 0 ? <p className="cp-hint">No completed sales yet.</p> :
+          <div className="cp-table-wrap">
+            <table className="cp-table">
+              <thead><tr><th>Pharmacy</th><th className="text-right">Completed orders</th><th className="text-right">Revenue</th></tr></thead>
+              <tbody>
+                {phRows.map(r => (
+                  <tr key={r.id}>
+                    <td>{r.name}</td>
+                    <td className="text-right">{r.orders}</td>
+                    <td className="text-right">{money(r.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>}
       </div>
     </div>
   );
@@ -475,6 +712,7 @@ function Settings({ actor, dispatch, toast }: { actor: string; dispatch: any; to
     });
     logAudit(actor, 'Updated platform settings');
     toast('Settings saved.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -542,6 +780,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setEditingBanner(false);
     logAudit(actor, 'Updated the homepage banner');
     toast('Homepage banner updated.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -553,6 +792,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setAddingPromo(false);
     logAudit(actor, 'Added promotion: ' + title);
     toast('Promotion added.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -565,6 +805,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setEditPromoId(null);
     logAudit(actor, 'Updated promotion: ' + title);
     toast('Promotion updated.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -573,6 +814,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     p.active = !p.active;
     logAudit(actor, (p.active ? 'Activated' : 'Deactivated') + ' promotion: ' + p.title);
     toast('Promotion ' + (p.active ? 'activated' : 'deactivated') + '.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -582,6 +824,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     DB.promotions = DB.promotions.filter(x => x.id !== id);
     logAudit(actor, 'Removed promotion: ' + (p ? p.title : id));
     toast('Promotion removed.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -593,6 +836,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setAddingFaq(false);
     logAudit(actor, 'Added FAQ: ' + q);
     toast('FAQ added.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -605,6 +849,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setEditFaqId(null);
     logAudit(actor, 'Updated FAQ: ' + q);
     toast('FAQ updated.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -614,6 +859,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     DB.faqs = DB.faqs.filter(x => x.id !== id);
     logAudit(actor, 'Removed an FAQ entry' + (f ? ': ' + f.q : ''));
     toast('FAQ removed.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -626,6 +872,7 @@ function Content({ adminName, dispatch, toast }: { adminName: string; dispatch: 
     setEditPageKey(null);
     logAudit(actor, 'Updated the "' + title + '" page');
     toast('Page updated.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -851,7 +1098,7 @@ const AdminPortal: React.FC = () => {
               <div className="cp-brand-mark">🍃</div>
               <div>
                 <div className="cp-brand-name">CarePoint</div>
-                <span className="cp-brand-tag">Super Admin</span>
+                <span className="cp-brand-tag">Site Admin</span>
               </div>
             </div>
             <div className="cp-user-chip" style={{ marginLeft: 'auto' }}>

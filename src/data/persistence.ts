@@ -10,7 +10,7 @@
 //  so the app still builds/runs/test offline.
 // ============================================================
 import { supabase, supabaseEnabled } from '../supabase';
-import { DB } from './db';
+import { DB, counters } from './db';
 
 const TABLE = 'carepoint_snapshot';
 
@@ -64,7 +64,14 @@ export async function loadSnapshot(): Promise<boolean> {
     .select('id, payload');
 
   if (error) {
-    console.warn('[supabase] loadSnapshot failed:', error.message);
+    if (error.message?.includes('relation') || error.code === '42P01') {
+      console.error(
+        '[supabase] Table missing. Run src/data/supabase-schema.sql in your Supabase Dashboard → SQL Editor.',
+        error.message,
+      );
+    } else {
+      console.warn('[supabase] loadSnapshot failed:', error.message);
+    }
     return false;
   }
   if (!data || data.length === 0) return false;
@@ -79,6 +86,27 @@ export async function loadSnapshot(): Promise<boolean> {
     applied += 1;
   }
   console.info(`[supabase] loaded ${applied} collections from server`);
+
+  // Resync auto-increment counters so new IDs don't collide with loaded data.
+  if (applied > 0) {
+    const nextNum = (list: { id: string }[], prefix: string, fallback: number) => {
+      const nums = list.map((r) => parseInt(r.id.replace(prefix, ''), 10)).filter((n) => !isNaN(n));
+      return nums.length ? Math.max(...nums) + 1 : fallback;
+    };
+    counters.order  = nextNum(DB.orders,        'o',     counters.order);
+    counters.thread = nextNum(DB.threads,        't',     counters.thread);
+    counters.med    = nextNum(DB.medicines,      'm',     counters.med);
+    counters.review = nextNum(DB.reviews,        'rv',    counters.review);
+    counters.notif  = nextNum(DB.notifications,  'n',     counters.notif);
+    counters.ret    = nextNum(DB.returns,        'r',     counters.ret);
+    counters.admin  = nextNum(DB.admins,         'a',     counters.admin);
+    counters.staff  = nextNum(DB.staff,          's',     counters.staff);
+    counters.audit  = nextNum(DB.auditLog,       'audit', counters.audit);
+    counters.promo  = nextNum(DB.promotions,     'promo', counters.promo);
+    counters.faq    = nextNum(DB.faqs,           'faq',   counters.faq);
+    console.info('[supabase] counters resynced after load');
+  }
+
   return applied > 0;
 }
 
@@ -95,7 +123,14 @@ export async function saveSnapshot(): Promise<boolean> {
 
   const { error } = await supabase.from(TABLE).upsert(rows);
   if (error) {
-    console.warn('[supabase] saveSnapshot failed:', error.message);
+    if (error.message?.includes('relation') || error.code === '42P01') {
+      console.error(
+        '[supabase] Table missing. Run src/data/supabase-schema.sql in your Supabase Dashboard → SQL Editor.',
+        error.message,
+      );
+    } else {
+      console.warn('[supabase] saveSnapshot failed:', error.message);
+    }
     return false;
   }
   return true;
@@ -114,7 +149,15 @@ export async function probeConnection(): Promise<{ ok: boolean; detail: string }
   const probeId = `probe_${Date.now()}`;
   try {
     const { error: writeErr } = await supabase.from(TABLE).upsert({ id: probeId, payload: { ok: true, at: new Date().toISOString() } });
-    if (writeErr) return { ok: false, detail: `Write blocked: ${writeErr.message}` };
+    if (writeErr) {
+      const isMissingTable = writeErr.message?.includes('relation') || writeErr.code === '42P01';
+      return {
+        ok: false,
+        detail: isMissingTable
+          ? `Table "${TABLE}" not found. Run src/data/supabase-schema.sql in Supabase Dashboard → SQL Editor.`
+          : `Write blocked: ${writeErr.message}`,
+      };
+    }
     const { data, error: readErr } = await supabase.from(TABLE).select('id').eq('id', probeId).maybeSingle();
     if (readErr) return { ok: false, detail: `Read blocked: ${readErr.message}` };
     const ok = Boolean(data);

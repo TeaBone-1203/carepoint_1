@@ -4,7 +4,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DB } from '../../data/db';
-import { medicine, pharmacyName, money, medRatingAvg, stockState, stockText } from '../../data/helpers';
+import { medicine, pharmacyName, money, medRatingAvg, stockState, stockText, medBrand } from '../../data/helpers';
 import { useApp } from '../../context/AppContext';
 
 const EMOJI_MAP:Record<string,string>={Paracetamol:'💊',Ibuprofen:'💊',Cetirizine:'💊',Amoxicillin:'💊','Cough Syrup':'🍯','Oral Rehydration':'🧂','Vitamin C':'🍊',Multivitamins:'🥗',Antiseptic:'🧴',Hydrocortisone:'🧴',Salbutamol:'💨',Echinacea:'🌿',Ginger:'🍯'};
@@ -82,6 +82,7 @@ const WishlistPage: React.FC = () => {
                           <StarRow avg={avg} />
                         </div>
                       </div>
+                      <div className="cp-med-brand">{medBrand(m)}</div>
                       <div style={{ fontSize:12, color:'var(--cp-walnut-faint)' }}>🏥 {pharmacyName(m.pharmacyId)}</div>
                       {m.prescription
                         ? <div className="cp-stock-line">📜 Rx required</div>

@@ -7,7 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DB } from '../data/db';
 import {
   publicMedicines, medRatingAvg, medReviews, CATEGORIES,
-  money, stockState, stockText, isWishlisted,
+  money, stockState, stockText, isWishlisted, medBrand, brandList,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
 
@@ -59,7 +59,7 @@ function MedPicture({ name, size = 72 }: { name: string; size?: number }) {
 }
 
 function filteredMeds(search: {
-  query:string; category:string; pharmacy:string; sort:string; priceMin:string; priceMax:string;
+  query:string; category:string; pharmacy:string; brand:string; sort:string; priceMin:string; priceMax:string;
 }) {
   const q   = search.query.trim().toLowerCase();
   const min = parseFloat(search.priceMin);
@@ -67,11 +67,13 @@ function filteredMeds(search: {
   let list = publicMedicines().filter((m) => {
     if (search.category !== 'All' && m.category !== search.category) return false;
     if (search.pharmacy  !== 'All' && m.pharmacyId !== search.pharmacy) return false;
+    if (search.brand !== 'All' && medBrand(m) !== search.brand) return false;
     if (!isNaN(min) && m.price < min) return false;
     if (!isNaN(max) && m.price > max) return false;
     if (!q) return true;
     const ph = DB.pharmacies.find((p) => p.id === m.pharmacyId);
-    return m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q) || (ph?.name.toLowerCase().includes(q) ?? false);
+    return m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)
+      || medBrand(m).toLowerCase().includes(q) || (ph?.name.toLowerCase().includes(q) ?? false);
   });
   if (search.sort === 'priceLow')      list = [...list].sort((a,b)=>a.price-b.price);
   else if (search.sort === 'priceHigh') list = [...list].sort((a,b)=>b.price-a.price);
@@ -132,7 +134,7 @@ const CatalogPage: React.FC = () => {
 
   const hasFilters =
     state.search.category !== 'All' || state.search.pharmacy !== 'All' ||
-    state.search.priceMin || state.search.priceMax || state.search.query;
+    state.search.brand !== 'All' || state.search.priceMin || state.search.priceMax || state.search.query;
 
   return (
     <div className="cp-page">
@@ -209,6 +211,14 @@ const CatalogPage: React.FC = () => {
                 </select>
               </div>
               <div className="cp-field" style={{ minWidth:150, marginBottom:0 }}>
+                <label>Brand</label>
+                <select value={state.search.brand}
+                  onChange={(e) => dispatch({ type:'SET_SEARCH', payload:{ brand:e.target.value } })}>
+                  <option value="All">All</option>
+                  {brandList().map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+              <div className="cp-field" style={{ minWidth:150, marginBottom:0 }}>
                 <label>Sort</label>
                 <select value={state.search.sort}
                   onChange={(e) => dispatch({ type:'SET_SEARCH', payload:{ sort:e.target.value } })}>
@@ -233,7 +243,7 @@ const CatalogPage: React.FC = () => {
               </div>
               {hasFilters && (
                 <button className="cp-btn cp-btn-outline cp-btn-sm"
-                  onClick={() => dispatch({ type:'SET_SEARCH', payload:{ query:'', category:'All', pharmacy:'All', priceMin:'', priceMax:'' } })}>
+                  onClick={() => dispatch({ type:'SET_SEARCH', payload:{ query:'', category:'All', pharmacy:'All', brand:'All', priceMin:'', priceMax:'' } })}>
                   Clear
                 </button>
               )}
@@ -287,6 +297,7 @@ const CatalogPage: React.FC = () => {
                         </div>
                       </div>
 
+                      <div className="cp-med-brand">{medBrand(m)}</div>
                       <div style={{ fontSize:12, color:'var(--cp-walnut-faint)' }}>
                         🏥 {ph?.name ?? 'Pharmacy'}
                       </div>

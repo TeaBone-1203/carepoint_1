@@ -33,6 +33,7 @@ export interface Medicine {
   sold: number;
   addedAt: number;
   description?: string;
+  brand?: string;
   specs?: Record<string, string>;
   images?: string[];
   status?: 'active' | 'inactive';
@@ -61,6 +62,8 @@ export interface StaffMember {
   email: string;
   password: string;
   pharmacyId: string;
+  /** 'pharmacyAdmin' = Pharmacy-level admin. Absent/'staff' = regular staff. */
+  role?: 'pharmacyAdmin' | 'staff';
   status: 'active' | 'pending' | 'inactive' | 'rejected' | 'disabled';
 }
 
@@ -209,4 +212,8 @@ export interface AuditEntry {
 }
 
 // Active user role
-export type UserRole = 'customer' | 'staff' | 'admin' | null;
+//   siteAdmin      → top-level platform admin (DB.admins)
+//   pharmacyAdmin  → pharmacy-level administrator (staff with role 'pharmacyAdmin')
+//   staff          → pharmacy staff member (staff with role 'staff')
+//   customer       → end-user buyer
+export type UserRole = 'siteAdmin' | 'pharmacyAdmin' | 'staff' | 'customer' | null;

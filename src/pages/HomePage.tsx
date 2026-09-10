@@ -9,10 +9,11 @@ import { DB } from '../data/db';
 import {
   publicMedicines, platformStats, medRatingAvg, medReviews,
   CATEGORIES, timeGreeting, money, stockState, stockText,
-  isWishlisted, customerName, fmtDate,
+  isWishlisted, customerName, fmtDate, medBrand, brandList,
   unreadForCustomer, unreadNotifCount, custNotifications,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
+import { saveSnapshot } from '../data/persistence';
 
 // ── Helpers ──────────────────────────────────────────────────
 const CAT_EMOJI: Record<string,string> = {
@@ -37,16 +38,17 @@ const EMOJI_MAP: Record<string,string> = {Paracetamol:'💊',Ibuprofen:'💊',Ce
 const GRAD_MAP: Record<string,[string,string]> = {Paracetamol:['#E8D5B7','#D4BFA0'],Ibuprofen:['#E8D5B7','#D4BFA0'],Cetirizine:['#D4E0D8','#B8C9BE'],Amoxicillin:['#F5E3D4','#E8CDB8'],'Cough Syrup':['#F0D4B0','#E0BC8A'],'Oral Rehydration':['#D4E8E0','#B8D4C8'],'Vitamin C':['#F5E0B0','#E8CC8A'],Multivitamins:['#D4E8D0','#B8D4B0'],Antiseptic:['#D0E0E8','#B0C8D4'],Hydrocortisone:['#E8DDE0','#D4C4C8'],Salbutamol:['#D0E0F0','#B0C8E0'],Echinacea:['#D4E8D8','#B0C8B8'],Ginger:['#E8D8B8','#D4C4A0']};
 function medVis(name:string){let e='💊',g1='#D4D4D4',g2='#B8B8B8';for(const[k,v]of Object.entries(EMOJI_MAP)){if(name.includes(k)){e=v;break;}}for(const[k,v]of Object.entries(GRAD_MAP)){if(name.includes(k)){[g1,g2]=v;break;}}return{e,g1,g2};}
 
-function filteredMeds(search: { query:string; category:string; pharmacy:string; sort:string; priceMin:string; priceMax:string }) {
+function filteredMeds(search: { query:string; category:string; pharmacy:string; brand:string; sort:string; priceMin:string; priceMax:string }) {
   const q=search.query.trim().toLowerCase(), min=parseFloat(search.priceMin), max=parseFloat(search.priceMax);
   let list=publicMedicines().filter(m=>{
     if(search.category!=='All'&&m.category!==search.category)return false;
     if(search.pharmacy!=='All'&&m.pharmacyId!==search.pharmacy)return false;
+    if(search.brand!=='All'&&medBrand(m)!==search.brand)return false;
     if(!isNaN(min)&&m.price<min)return false;
     if(!isNaN(max)&&m.price>max)return false;
     if(!q)return true;
     const ph=DB.pharmacies.find(p=>p.id===m.pharmacyId);
-    return m.name.toLowerCase().includes(q)||m.category.toLowerCase().includes(q)||(ph?.name.toLowerCase().includes(q)??false);
+    return m.name.toLowerCase().includes(q)||m.category.toLowerCase().includes(q)||medBrand(m).toLowerCase().includes(q)||(ph?.name.toLowerCase().includes(q)??false);
   });
   if(search.sort==='priceLow')list=[...list].sort((a,b)=>a.price-b.price);
   else if(search.sort==='priceHigh')list=[...list].sort((a,b)=>b.price-a.price);
@@ -63,7 +65,7 @@ function NotifPanel({ custId, onClose }: { custId:string; onClose:()=>void }) {
     <div className="cp-notif-panel" onClick={e => e.stopPropagation()}>
       <div className="cp-notif-head">
         <strong style={{fontFamily:'var(--cp-font-display)',fontSize:14}}>Notifications</strong>
-        {list.length>0 && <button className="cp-btn-link" style={{fontSize:11}} onClick={()=>{DB.notifications.filter(n=>n.customerId===custId).forEach(n=>{n.read=true;});onClose();}}>Mark all read</button>}
+        {list.length>0 && <button className="cp-btn-link" style={{fontSize:11}} onClick={()=>{DB.notifications.filter(n=>n.customerId===custId).forEach(n=>{n.read=true;});void saveSnapshot();onClose();}}>Mark all read</button>}
       </div>
       {list.length===0
         ? <div style={{padding:'28px 14px',textAlign:'center',fontSize:12.5,color:'var(--cp-walnut-faint)'}}>All caught up — no notifications.</div>
@@ -97,6 +99,7 @@ function PublicMedCard({ m, onOpen }: { m: ReturnType<typeof publicMedicines>[0]
           <StarRow avg={avg} count={cnt} />
         </div>
       </div>
+      <div className="cp-med-brand">{medBrand(m)}</div>
       <div style={{fontSize:12,color:'var(--cp-walnut-faint)'}}>🏥 {ph?.name??'Pharmacy'}</div>
       {m.prescription
         ? <div className="cp-stock-line">📜 Rx required</div>
@@ -134,6 +137,7 @@ function CustomerMedCard({ m, custId, onOpen, onAdd, onWish }: {
           <StarRow avg={avg} count={cnt} />
         </div>
       </div>
+      <div className="cp-med-brand">{medBrand(m)}</div>
       <div style={{fontSize:12,color:'var(--cp-walnut-faint)'}}>🏥 {ph?.name??'Pharmacy'}</div>
       {m.prescription
         ? <div className="cp-stock-line">📜 Rx required</div>
@@ -186,10 +190,10 @@ const HomePage: React.FC = () => {
   const greeting   = timeGreeting();
   const firstName  = custId ? DB.customers.find(c=>c.id===custId)?.name?.split(' ')[0] : null;
 
-  // Redirect staff/admin to their portals
+  // Redirect staff/pharmacy admins/site admins to their portals
   useEffect(() => {
-    if (state.activeRole==='staff')  navigate('/branch', { replace:true });
-    if (state.activeRole==='admin')  navigate('/admin',  { replace:true });
+    if (state.activeRole==='pharmacyAdmin'||state.activeRole==='staff') navigate('/branch', { replace:true });
+    if (state.activeRole==='siteAdmin')  navigate('/admin',  { replace:true });
   }, [state.activeRole, navigate]);
 
   // Redirect customer sub-views to their own routes
@@ -231,6 +235,7 @@ const HomePage: React.FC = () => {
     const i=c.wishlist.indexOf(medId);
     if (i>-1){c.wishlist.splice(i,1);toast('Removed from wishlist.','success');}
     else      {c.wishlist.push(medId);toast('Saved to wishlist.','success');}
+    void saveSnapshot();
     dispatch({type:'SET_SEARCH',payload:{}});
   }
 
@@ -278,8 +283,14 @@ const HomePage: React.FC = () => {
             <div className="cp-notif-wrap">
               <button className="cp-icon-btn cp-icon-btn-notif" aria-label="Notifications"
                 onClick={()=>{
-                  if (!notifPanelOpen&&custId) DB.notifications.filter(n=>n.customerId===custId).forEach(n=>{n.read=true;});
+                  if (notifPanelOpen) { dispatch({type:'CLOSE_NOTIF_PANEL'}); return; }
                   dispatch({type:'TOGGLE_NOTIF_PANEL'});
+                  // Mark notifications as read only AFTER the panel has been open a moment,
+                  // so unread highlights are visible while the drawer is on screen.
+                  if (custId) window.setTimeout(()=>{
+                    DB.notifications.filter(n=>n.customerId===custId&&!n.read).forEach(n=>{n.read=true;});
+                    void saveSnapshot();
+                  }, 900);
                 }}>
                 🔔
                 {unreadNotif>0&&<span className="cp-notif-dot"/>}
@@ -347,6 +358,13 @@ const HomePage: React.FC = () => {
                 </select>
               </div>
               <div className="cp-field" style={{minWidth:150,marginBottom:0}}>
+                <label>Brand</label>
+                <select value={state.search.brand} onChange={e=>dispatch({type:'SET_SEARCH',payload:{brand:e.target.value}})}>
+                  <option value="All">All</option>
+                  {brandList().map(b=><option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+              <div className="cp-field" style={{minWidth:150,marginBottom:0}}>
                 <label>Sort</label>
                 <select value={state.search.sort} onChange={e=>dispatch({type:'SET_SEARCH',payload:{sort:e.target.value}})}>
                   <option value="newest">Newest</option>
@@ -364,8 +382,8 @@ const HomePage: React.FC = () => {
                   <input type="number" min={0} placeholder="Max" value={state.search.priceMax} onChange={e=>dispatch({type:'SET_SEARCH',payload:{priceMax:e.target.value}})} />
                 </div>
               </div>
-              {(state.search.category!=='All'||state.search.pharmacy!=='All'||state.search.priceMin||state.search.priceMax||state.search.query)&&(
-                <button className="cp-btn cp-btn-ghost cp-btn-sm" onClick={()=>dispatch({type:'SET_SEARCH',payload:{query:'',category:'All',pharmacy:'All',priceMin:'',priceMax:''}})}>Clear</button>
+              {(state.search.category!=='All'||state.search.pharmacy!=='All'||state.search.brand!=='All'||state.search.priceMin||state.search.priceMax||state.search.query)&&(
+                <button className="cp-btn cp-btn-ghost cp-btn-sm" onClick={()=>dispatch({type:'SET_SEARCH',payload:{query:'',category:'All',pharmacy:'All',brand:'All',priceMin:'',priceMax:''}})}>Clear</button>
               )}
             </div>
           </div>

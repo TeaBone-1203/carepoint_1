@@ -18,8 +18,10 @@ import {
   unreadForStaffPharmacy, notifTemplates, NOTIF_EVENTS,
   pharmacyCustomerIds, logNotification,
   orderAddressText,
+  notifyOrderEvent, medBrand, isPharmacyAdmin, roleLabel, logAudit,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
+import { saveSnapshot } from '../data/persistence';
 
 // ── Emoji / gradient helpers (shared visual) ─────────────────
 const EMOJI_MAP:Record<string,string>={Paracetamol:'💊',Ibuprofen:'💊',Cetirizine:'💊',Amoxicillin:'💊','Cough Syrup':'🍯','Oral Rehydration':'🧂','Vitamin C':'🍊',Multivitamins:'🥗',Antiseptic:'🧴',Hydrocortisone:'🧴',Salbutamol:'💨',Echinacea:'🌿',Ginger:'🍯'};
@@ -53,9 +55,16 @@ function Workbench({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}) {
     const idx=STATUS_FLOW.indexOf(o.status as any);
     const next=STATUS_FLOW[idx+1];
     const ret=orderReturn(openId);
-    function advanceOrder(){const ni=STATUS_FLOW.indexOf(o.status as any);if(ni<STATUS_FLOW.length-1){o.status=STATUS_FLOW[ni+1];toast('Order marked '+STATUS_LABEL[o.status],'success');dispatch({type:'SET_SEARCH',payload:{}});}}
-    function cancelOrder(){if(!window.confirm('Cancel this order?'))return;o.items.forEach(it=>{const m=medicine(it.medId);if(m){m.stock+=it.qty;m.sold=Math.max(0,(m.sold||0)-it.qty);}});o.status='cancelled';toast('Order cancelled.','success');dispatch({type:'SET_SEARCH',payload:{}});}
-    function applyStatus(val:string){if(val==='cancelled'){cancelOrder();return;}o.status=val as any;toast('Status updated.','success');dispatch({type:'SET_SEARCH',payload:{}});}
+    function statusEvent(status:string):string|undefined{
+      if(status==='confirmed')return 'orderConfirmed';
+      if(status==='ready')return 'orderReady';
+      if(status==='completed')return 'orderCompleted';
+      if(status==='cancelled')return 'orderCancelled';
+      return undefined;
+    }
+    function advanceOrder(){const ni=STATUS_FLOW.indexOf(o.status as any);if(ni<STATUS_FLOW.length-1){o.status=STATUS_FLOW[ni+1];toast('Order marked '+STATUS_LABEL[o.status],'success');const ev=statusEvent(o.status);if(ev)notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:o.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
+    function cancelOrder(){if(!window.confirm('Cancel this order?'))return;o.items.forEach(it=>{const m=medicine(it.medId);if(m){m.stock+=it.qty;m.sold=Math.max(0,(m.sold||0)-it.qty);}});o.status='cancelled';toast('Order cancelled.','success');notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:'cancelled'},'orderCancelled');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+    function applyStatus(val:string){if(val==='cancelled'){cancelOrder();return;}o.status=val as any;toast('Status updated.','success');const ev=statusEvent(o.status);if(ev)notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:o.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
     return(
       <div>
         <button className="cp-btn-link"onClick={()=>setOpenId(null)}>← Back to Workbench</button>
@@ -94,7 +103,7 @@ function Workbench({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}) {
             <div>
               <h3 style={{marginTop:0,fontSize:15}}>Returns</h3>
               {ret?<div className="cp-apo-note"><strong>Return {RETURN_LABEL[ret.status]}</strong> — {ret.reason}{(ret as any).refundAmount!=null?` · ${money((ret as any).refundAmount)}`:''}</div>
-                :<button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{const reason=window.prompt('Reason:');if(!reason?.trim())return;DB.returns.push({id:'r'+counters.ret++,orderId:openId,customerId:o.customerId,pharmacyId:o.pharmacyId,reason:reason.trim(),status:'approved',at:new Date()} as any);toast('Return recorded.','success');dispatch({type:'SET_SEARCH',payload:{}});}}>↩️ Record return</button>}
+                :<button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{const reason=window.prompt('Reason:');if(!reason?.trim())return;DB.returns.push({id:'r'+counters.ret++,orderId:openId,customerId:o.customerId,pharmacyId:o.pharmacyId,reason:reason.trim(),status:'approved',at:new Date()} as any);toast('Return recorded.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>↩️ Record return</button>}
             </div>
           </div>
         </div>
@@ -146,6 +155,7 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
 
   function saveProduct(){
     const name=(document.getElementById('medName') as HTMLInputElement)?.value?.trim();
+    const brand=(document.getElementById('medBrand') as HTMLInputElement)?.value?.trim();
     const desc=(document.getElementById('medDesc') as HTMLTextAreaElement)?.value?.trim();
     const cat=(document.getElementById('medCat') as HTMLSelectElement)?.value;
     const price=parseFloat((document.getElementById('medPrice') as HTMLInputElement)?.value);
@@ -157,15 +167,15 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
     const ph2=pharmacy(phId);
     if(editId&&editId!=='new'){
       const m=medicine(editId);
-      if(m)Object.assign(m,{name,description:desc||undefined,category:finalCat,price,stock,prescription:isRx,status,images:draftImages});
+      if(m)Object.assign(m,{name,brand:brand||undefined,description:desc||undefined,category:finalCat,price,stock,prescription:isRx,status,images:draftImages});
       toast('Product updated.','success');
     }else{
       const id='m'+counters.med++;
       const newest=DB.medicines.reduce((mx,m)=>Math.max(mx,m.addedAt||0),0);
-      DB.medicines.push({id,pharmacyId:phId,name,category:finalCat as any,price,stock,prescription:isRx,sold:0,addedAt:newest+1,status:status as any,description:desc||undefined,images:draftImages,specs:{Category:finalCat,'Requires Prescription':isRx?'Yes':'No','Sold By':ph2?.name??''}});
+      DB.medicines.push({id,pharmacyId:phId,name,brand:brand||undefined,category:finalCat as any,price,stock,prescription:isRx,sold:0,addedAt:newest+1,status:status as any,description:desc||undefined,images:draftImages,specs:{Category:finalCat,'Requires Prescription':isRx?'Yes':'No','Sold By':ph2?.name??''}});
       toast('Product added to the shelf.','success');
     }
-    setEditId(null);setDraftImages([]);dispatch({type:'SET_SEARCH',payload:{}});
+    setEditId(null);setDraftImages([]);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});
   }
 
   function handleImages(e:React.ChangeEvent<HTMLInputElement>){
@@ -196,6 +206,7 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:16}}>
             <div>
               <div className="cp-field"><label>Product name</label><input id="medName"type="text"defaultValue={editMed?.name??''}placeholder="e.g. Mefenamic Acid 500mg"/></div>
+              <div className="cp-field"><label>Brand</label><input id="medBrand"type="text"defaultValue={editMed?medBrand(editMed):''}placeholder="e.g. CarePoint Generics" list="medBrandList"/><datalist id="medBrandList">{[...new Set(DB.medicines.map(m=>medBrand(m)))].map(b=><option key={b}value={b}/>)}</datalist></div>
               <div className="cp-field"><label>Description</label><textarea id="medDesc"rows={3}placeholder="Short description"defaultValue={editMed?.description??''}/></div>
               <div className="cp-field"><label>Category</label>
                 <select id="medCat"defaultValue={editMed?.category??CATEGORIES[0]}>
@@ -239,24 +250,25 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
 
       <div className="cp-card">
         <div className="cp-table-wrap"><table className="cp-table">
-          <thead><tr><th>Product</th><th>Category</th><th className="text-right">Price</th><th className="text-right">Stock</th><th className="text-center">Status</th><th className="col-actions"></th></tr></thead>
+          <thead><tr><th>Product</th><th>Category</th><th>Brand</th><th className="text-right">Price</th><th className="text-right">Stock</th><th className="text-center">Status</th><th className="col-actions"></th></tr></thead>
           <tbody>
             {meds.map(m=>{
               const st=productStatus(m);
               return(<tr key={m.id}>
                 <td><div className="cp-cell-thumb"><MedThumb name={m.name}size={46}/><span className="cell-text">{m.name}{m.prescription&&<span className="cp-badge cp-badge-pending"style={{marginLeft:6}}>Rx</span>}</span></div></td>
                 <td style={{fontSize:13}}>💊 {m.category}</td>
+                <td style={{fontSize:12.5}}>{medBrand(m)}</td>
                 <td className="text-right">{money(m.price)}</td>
                 <td className="text-right"><span className={`cp-dot cp-dot-${m.stock===0?'out':isLowStock(m)?'low':'in'}`}style={{marginRight:4}}/>{m.stock}</td>
                 <td className="text-center"><span className={`cp-badge ${PRODUCT_STATUS_BADGE[st]}`}>{PRODUCT_STATUS_LABEL[st]}</span></td>
                 <td className="col-actions" style={{display:'flex',gap:4,justifyContent:'flex-end',flexWrap:'wrap'}}>
                   <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{setEditId(m.id);setDraftImages((m.images??[]).slice());}}>Edit</button>
-                  <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{m.status=(m.status||'active')==='active'?'inactive':'active';toast(m.name+' is now '+(m.status==='active'?'active':'inactive')+'.','success');dispatch({type:'SET_SEARCH',payload:{}});}}>{(m.status||'active')==='active'?'Deactivate':'Activate'}</button>
-                  <button className="cp-btn cp-btn-danger cp-btn-sm"onClick={()=>{if(!window.confirm('Remove this listing?'))return;DB.medicines=DB.medicines.filter(x=>x.id!==m.id);toast('Removed.','success');dispatch({type:'SET_SEARCH',payload:{}});}}>Delete</button>
+                  <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{m.status=(m.status||'active')==='active'?'inactive':'active';toast(m.name+' is now '+(m.status==='active'?'active':'inactive')+'.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>{(m.status||'active')==='active'?'Deactivate':'Activate'}</button>
+                  <button className="cp-btn cp-btn-danger cp-btn-sm"onClick={()=>{if(!window.confirm('Remove this listing?'))return;DB.medicines=DB.medicines.filter(x=>x.id!==m.id);toast('Removed.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>Delete</button>
                 </td>
               </tr>);
             })}
-            {meds.length===0&&<tr><td colSpan={6}className="cp-hint"style={{textAlign:'center',padding:24}}>No products match this filter.</td></tr>}
+            {meds.length===0&&<tr><td colSpan={7}className="cp-hint"style={{textAlign:'center',padding:24}}>No products match this filter.</td></tr>}
           </tbody>
         </table></div>
       </div>
@@ -272,9 +284,14 @@ function Inventory({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   const units=meds.reduce((s,m)=>s+m.stock,0);
   const value=meds.reduce((s,m)=>s+m.stock*m.price,0);
   const sorted=[...meds].sort((a,b)=>a.stock-b.stock);
-  function adjust(id:string,delta:number){const m=medicine(id);if(m){m.stock=Math.max(0,m.stock+delta);dispatch({type:'SET_SEARCH',payload:{}});}}
-  function setThreshold(id:string,val:string){const m=medicine(id);if(!m)return;const n=parseInt(val,10);if(isNaN(n)||n<0){toast('Enter a whole number.','error');return;}m.lowStockThreshold=n;dispatch({type:'SET_SEARCH',payload:{}});}
-  function setStockPrompt(id:string){const m=medicine(id);if(!m)return;const v=window.prompt(`Set stock for ${m.name}`,String(m.stock));if(v===null)return;const n=parseInt(v,10);if(isNaN(n)||n<0){toast('Enter a whole number.','error');return;}m.stock=n;toast(m.name+' stock set to '+n+'.','success');dispatch({type:'SET_SEARCH',payload:{}});}
+  function alertStock(m:ReturnType<typeof medicine>){
+    if(!m)return;
+    if(m.stock===0){toast(`⛔ ${m.name} is out of stock — restock soon.`,'error');}
+    else if(m.stock<=lowStockThreshold(m)){toast(`🔔 ${m.name} is low on stock — ${m.stock} left (alert at ${lowStockThreshold(m)}).`,'error');}
+  }
+  function adjust(id:string,delta:number){const m=medicine(id);if(m){m.stock=Math.max(0,m.stock+delta);alertStock(m);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
+  function setThreshold(id:string,val:string){const m=medicine(id);if(!m)return;const n=parseInt(val,10);if(isNaN(n)||n<0){toast('Enter a whole number.','error');return;}m.lowStockThreshold=n;alertStock(m);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+  function setStockPrompt(id:string){const m=medicine(id);if(!m)return;const v=window.prompt(`Set stock for ${m.name}`,String(m.stock));if(v===null)return;const n=parseInt(v,10);if(isNaN(n)||n<0){toast('Enter a whole number.','error');return;}m.stock=n;toast(m.name+' stock set to '+n+'.','success');alertStock(m);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
   return(
     <div>
       <h2 style={{fontFamily:'var(--cp-font-display)',fontSize:24,margin:'0 0 4px'}}>Inventory</h2>
@@ -296,12 +313,13 @@ function Inventory({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
       <div className="cp-card">
         <h3 style={{marginTop:0,fontSize:15}}>Stock ledger</h3>
         <div className="cp-table-wrap"><table className="cp-table">
-          <thead><tr><th>Product</th><th className="text-right">On hand</th><th className="text-right">Sold</th><th className="text-right">Alert at</th><th className="text-center">Status</th><th className="col-actions">Adjust</th></tr></thead>
+          <thead><tr><th>Product</th><th>Brand</th><th className="text-right">On hand</th><th className="text-right">Sold</th><th className="text-right">Alert at</th><th className="text-center">Status</th><th className="col-actions">Adjust</th></tr></thead>
           <tbody>{sorted.map(m=>{
             const st=m.stock===0?'out':isLowStock(m)?'low':'ok';
             const badge=st==='out'?<span className="cp-badge cp-badge-cancelled">Out</span>:st==='low'?<span className="cp-badge cp-badge-pending">Low</span>:<span className="cp-badge cp-badge-active">In stock</span>;
             return(<tr key={m.id}>
               <td><div className="cp-cell-thumb"><MedThumb name={m.name}size={42}/><span>{m.name}</span></div></td>
+              <td style={{fontSize:12.5}}>{medBrand(m)}</td>
               <td className="text-right"><span className={`cp-dot cp-dot-${st==='out'?'out':st==='low'?'low':'in'}`}style={{marginRight:4}}/>{m.stock}</td>
               <td className="text-right">{m.sold||0}</td>
               <td className="text-right"><input type="number"defaultValue={lowStockThreshold(m)}style={{width:58,textAlign:'right',border:'1px solid var(--cp-stone-dark)',borderRadius:6,padding:'3px 6px',fontSize:13}}onBlur={e=>setThreshold(m.id,e.target.value)}/></td>
@@ -327,9 +345,9 @@ function Returns({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   const list=all.filter(r=>filter==='all'?true:r.status===filter);
   const refunded=all.filter(r=>r.status==='refunded');
   const refundTotal=refunded.reduce((s,r)=>s+(r as any).refundAmount||0,0);
-  function approve(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='approved';toast('Return approved.','success');dispatch({type:'SET_SEARCH',payload:{}});}}
-  function reject(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='rejected';toast('Return rejected.','success');dispatch({type:'SET_SEARCH',payload:{}});}}
-  function refund(id:string){const r=DB.returns.find(x=>x.id===id);if(!r)return;const amt=window.prompt('Refund amount:');if(amt===null)return;const n=parseFloat(amt);if(isNaN(n)||n<0){toast('Enter a valid amount.','error');return;}(r as any).refundAmount=n;r.status='refunded';toast(`Refund of ${money(n)} issued.`,'success');dispatch({type:'SET_SEARCH',payload:{}});}
+  function approve(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='approved';toast('Return approved.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
+  function reject(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='rejected';toast('Return rejected.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
+  function refund(id:string){const r=DB.returns.find(x=>x.id===id);if(!r)return;const amt=window.prompt('Refund amount:');if(amt===null)return;const n=parseFloat(amt);if(isNaN(n)||n<0){toast('Enter a valid amount.','error');return;}(r as any).refundAmount=n;r.status='refunded';toast(`Refund of ${money(n)} issued.`,'success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
   return(
     <div>
       <h2 style={{fontFamily:'var(--cp-font-display)',fontSize:24,margin:'0 0 4px'}}>Returns &amp; Refunds</h2>
@@ -376,8 +394,8 @@ function Counter({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   const threads=DB.threads.filter(t=>t.pharmacyId===phId);
 
   function openThread(id:string){const t=DB.threads.find(x=>x.id===id);if(t)t.unreadForStaff=false;setOpenId(id);setMsgText('');}
-  function sendMsg(tid:string){const t=DB.threads.find(x=>x.id===tid);const text=msgText.trim();if(!text){toast('Type a message.','error');return;}t?.messages.push({from:'staff',text,at:new Date()} as any);if(t){t.unreadForCustomer=true;t.unreadForStaff=false;}setMsgText('');toast('Message sent.','success');dispatch({type:'SET_SEARCH',payload:{}});}
-  function resolveThread(tid:string){const t=DB.threads.find(x=>x.id===tid);if(t){t.status='resolved';toast('Resolved.','success');dispatch({type:'SET_SEARCH',payload:{}}); setOpenId(null);}}
+  function sendMsg(tid:string){const t=DB.threads.find(x=>x.id===tid);const text=msgText.trim();if(!text){toast('Type a message.','error');return;}t?.messages.push({from:'staff',text,at:new Date()} as any);if(t){t.unreadForCustomer=true;t.unreadForStaff=false;}setMsgText('');toast('Message sent.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+  function resolveThread(tid:string){const t=DB.threads.find(x=>x.id===tid);if(t){t.status='resolved';toast('Resolved.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}}); setOpenId(null);}}
 
   if(openId){
     const t=DB.threads.find(x=>x.id===openId);if(!t)return null;
@@ -516,9 +534,9 @@ function Notices({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   const custIds=pharmacyCustomerIds(phId);
   const [target,setTarget]=useState('all');
 
-  function toggleTpl(id:string){tpls[id].enabled=!tpls[id].enabled;dispatch({type:'SET_SEARCH',payload:{}});}
-  function saveTpl(id:string){const el=document.getElementById(`tpl_${id}`) as HTMLTextAreaElement;if(el)tpls[id].text=el.value;toast('Saved.','success');}
-  function resetTpl(id:string){const ev=NOTIF_EVENTS.find(e=>e.id===id);if(ev)tpls[id].text=ev.text;dispatch({type:'SET_SEARCH',payload:{}});toast('Reset to default.','success');}
+  function toggleTpl(id:string){tpls[id].enabled=!tpls[id].enabled;void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+  function saveTpl(id:string){const el=document.getElementById(`tpl_${id}`) as HTMLTextAreaElement;if(el)tpls[id].text=el.value;void saveSnapshot();toast('Saved.','success');}
+  function resetTpl(id:string){const ev=NOTIF_EVENTS.find(e=>e.id===id);if(ev)tpls[id].text=ev.text;void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});toast('Reset to default.','success');}
   function sendBroadcast(){
     const el=document.getElementById('broadcastText') as HTMLTextAreaElement;
     const text=el?.value?.trim();
@@ -530,6 +548,7 @@ function Notices({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
     });
     if(el)el.value='';
     toast(`Sent to ${targets.length} customer${targets.length!==1?'s':''}.`,'success');
+    void saveSnapshot();
     dispatch({type:'SET_SEARCH',payload:{}});
   }
   return(
@@ -587,6 +606,116 @@ function Notices({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   );
 }
 
+// ── Tab: Team (Pharmacy Admin only) ───────────────────────────
+function Team({phId,selfId,dispatch,toast}:{phId:string;selfId:string;dispatch:any;toast:any}){
+  const [adding,setAdding]=useState(false);
+  const [name,setName]=useState('');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [role,setRole]=useState<'staff'|'pharmacyAdmin'>('staff');
+  const team=DB.staff.filter(s=>s.pharmacyId===phId);
+
+  function addStaff(){
+    if(!name.trim()||!email.trim()||!password){toast('Name, email, and password are required.','error');return;}
+    if(DB.staff.some(s=>s.email.toLowerCase()===email.trim().toLowerCase())){toast('A user with that email already exists.','error');return;}
+    const id='s'+counters.staff++;
+    DB.staff.push({id,name:name.trim(),email:email.trim(),password,pharmacyId:phId,role,status:'active'});
+    toast(`${role==='pharmacyAdmin'?'Pharmacy admin':'Staff member'} ${name.trim()} added.`,'success');
+    logAudit(staffMember(selfId)?.name??'Pharmacy Admin',`Added ${role==='pharmacyAdmin'?'pharmacy admin':'staff'} ${name.trim()}`);
+    setAdding(false);setName('');setEmail('');setPassword('');setRole('staff');
+    void saveSnapshot();
+    dispatch({type:'SET_SEARCH',payload:{}});
+  }
+  function toggleRole(s:ReturnType<typeof staffMember>){
+    if(!s){return;}
+    if(s.id===selfId){toast("You can't change your own role here.",'error');return;}
+    const next=s.role==='pharmacyAdmin'?'staff':'pharmacyAdmin';
+    s.role=next;
+    toast(`${s.name} is now a ${next==='pharmacyAdmin'?'pharmacy admin':'staff member'}.`,'success');
+    logAudit(staffMember(selfId)?.name??'Pharmacy Admin',`Updated ${s.name} role → ${next}`);
+    void saveSnapshot();
+    dispatch({type:'SET_SEARCH',payload:{}});
+  }
+  function toggleActive(s:ReturnType<typeof staffMember>){
+    if(!s){return;}
+    if(s.id===selfId){toast("You can't disable your own account.",'error');return;}
+    s.status=s.status==='disabled'?'active':'disabled';
+    toast(`${s.name} ${s.status==='active'?'enabled':'disabled'}.`,'success');
+    logAudit(staffMember(selfId)?.name??'Pharmacy Admin',`${s.status==='active'?'Enabled':'Disabled'} ${s.name}`);
+    void saveSnapshot();
+    dispatch({type:'SET_SEARCH',payload:{}});
+  }
+  function remove(s:ReturnType<typeof staffMember>){
+    if(!s){return;}
+    if(s.id===selfId){toast("You can't remove your own account.",'error');return;}
+    if(!window.confirm(`Remove ${s.name} from the team?`))return;
+    DB.staff=DB.staff.filter(x=>x.id!==s.id);
+    toast('Removed.','success');
+    logAudit(staffMember(selfId)?.name??'Pharmacy Admin',`Removed ${s.name}`);
+    void saveSnapshot();
+    dispatch({type:'SET_SEARCH',payload:{}});
+  }
+
+  return(
+    <div>
+      <div className="cp-row-between"style={{marginBottom:14}}>
+        <div>
+          <h2 style={{fontFamily:'var(--cp-font-display)',fontSize:24,margin:'0 0 2px'}}>Team</h2>
+          <p style={{margin:0,fontSize:13,color:'var(--cp-walnut-faint)'}}>{pharmacy(phId)?.name} · staff accounts and roles</p>
+        </div>
+        <button className="cp-btn cp-btn-primary"onClick={()=>setAdding(a=>!a)}>
+          {adding?'Cancel':'+ Add staff'}
+        </button>
+      </div>
+
+      {adding&&(
+        <div className="cp-card"style={{marginBottom:16,border:'1.5px solid var(--cp-terracotta)'}}>
+          <h3 style={{margin:0,fontSize:15,marginBottom:12}}>New team member</h3>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:16}}>
+            <div className="cp-field"style={{marginBottom:0}}><label>Full name</label><input type="text"value={name}onChange={e=>setName(e.target.value)}placeholder="e.g. Maria Santos"/></div>
+            <div className="cp-field"style={{marginBottom:0}}><label>Email</label><input type="email"value={email}onChange={e=>setEmail(e.target.value)}placeholder="name@pharmacy.ph"/></div>
+            <div className="cp-field"style={{marginBottom:0}}><label>Password</label><input type="text"value={password}onChange={e=>setPassword(e.target.value)}placeholder="Temporary password"/></div>
+            <div className="cp-field"style={{marginBottom:0}}><label>Role</label>
+              <select value={role}onChange={e=>setRole(e.target.value as any)}>
+                <option value="staff">Staff</option>
+                <option value="pharmacyAdmin">Pharmacy Admin</option>
+              </select>
+            </div>
+          </div>
+          <div style={{marginTop:12,display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <button className="cp-btn cp-btn-primary"onClick={addStaff}>Add member</button>
+          </div>
+        </div>
+      )}
+
+      <div className="cp-card">
+        <div className="cp-table-wrap"><table className="cp-table">
+          <thead><tr><th>Member</th><th>Role</th><th className="text-center">Status</th><th className="col-actions"></th></tr></thead>
+          <tbody>
+            {team.map(s=>{
+              const badge=s.status==='active'
+                ? s.role==='pharmacyAdmin'?<span className="cp-badge cp-badge-active">Pharmacy Admin</span>:<span className="cp-badge cp-badge-confirmed">Staff</span>
+                : <span className="cp-badge cp-badge-inactive">Disabled</span>;
+              return(<tr key={s.id}>
+                <td><div className="cp-cell-thumb"><div className="cp-med-picture"style={{width:40,height:40,borderRadius:'50%',background:'var(--cp-sage-tint)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>👤</div><span>{s.name}{s.id===selfId&&<span style={{fontSize:11,color:'var(--cp-walnut-faint)'}}> · you</span>}<div className="cp-hint">{s.email}</div></span></div></td>
+                <td>{badge}</td>
+                <td className="text-center"><span className={`cp-badge ${s.status==='active'?'cp-badge-active':'cp-badge-inactive'}`}>{s.status==='active'?'Active':'Disabled'}</span></td>
+                <td className="col-actions"style={{display:'flex',gap:4,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>toggleRole(s)}>{s.role==='pharmacyAdmin'?'Make staff':'Make admin'}</button>
+                  <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>toggleActive(s)}>{s.status==='active'?'Disable':'Enable'}</button>
+                  <button className="cp-btn cp-btn-danger cp-btn-sm"onClick={()=>remove(s)}>Remove</button>
+                </td>
+              </tr>);
+            })}
+            {team.length===0&&<tr><td colSpan={4}className="cp-hint"style={{textAlign:'center',padding:24}}>No team members yet.</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+      <p className="cp-hint"style={{marginTop:12}}>Staff changes are recorded in the Site Admin audit trail.</p>
+    </div>
+  );
+}
+
 // ── Tab: Profile ──────────────────────────────────────────────
 function PharmacyProfile({ph,dispatch,toast}:{ph:ReturnType<typeof pharmacy>;dispatch:any;toast:any}){
   const [n, setN] = useState(ph?.name     ?? '');
@@ -611,6 +740,7 @@ function PharmacyProfile({ph,dispatch,toast}:{ph:ReturnType<typeof pharmacy>;dis
     if (!isNaN(parsedLat)) (phDef as any).lat = parsedLat;
     if (!isNaN(parsedLng)) (phDef as any).lng = parsedLng;
     toast('Profile updated.', 'success');
+    void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
@@ -688,7 +818,7 @@ const BranchPortal: React.FC = () => {
 
   const staff = staffMember(staffId);
   const ph    = staff ? pharmacy(staff.pharmacyId) : undefined;
-  if (!ph) { navigate('/auth', { replace: true }); return null; }
+  if (!staff || !ph) { navigate('/auth', { replace: true }); return null; }
 
   const view = state.staff.view;
   const pendingReturns = pharmacyReturns(ph.id).filter(r=>r.status==='requested').length;
@@ -706,6 +836,7 @@ const BranchPortal: React.FC = () => {
     ['notices',  'Notices'],
     ['profile',  'Profile'],
   ];
+  if (staff && isPharmacyAdmin(staff)) tabs.push(['team', 'Team']);
 
   return (
     <div className="cp-page">
@@ -721,7 +852,7 @@ const BranchPortal: React.FC = () => {
               </div>
             </div>
             <div className="cp-user-chip" style={{ marginLeft:'auto' }}>
-              <span className="name">{staff?.name} · {ph.name}</span>
+              <span className="name">{staff?.name} · {roleLabel(staff?.role)} · {ph.name}</span>
               <button className="cp-btn-link" onClick={() => logout()}>Log out</button>
             </div>
           </div>
@@ -749,6 +880,7 @@ const BranchPortal: React.FC = () => {
           {view === 'sales'     && <Sales     phId={ph.id} />}
           {view === 'notices'   && <Notices   phId={ph.id} dispatch={dispatch} toast={toast} />}
           {view === 'profile'   && <PharmacyProfile ph={ph} dispatch={dispatch} toast={toast} />}
+          {view === 'team'      && <Team phId={ph.id} selfId={staff.id} dispatch={dispatch} toast={toast} />}
         </div>
       </div>
     </div>

@@ -19,7 +19,7 @@ import { auth, db as firestoreDb } from '../firebase';
 import { DB, counters } from '../data/db';
 import {
   customer, staffMember, adminUser, pharmacy,
-  notifyOrderEvent,
+  notifyOrderEvent, isPharmacyAdmin,
 } from '../data/helpers';
 import { supabaseEnabled, loadSnapshot, saveSnapshot } from '../data/persistence';
 import type { UserRole } from '../data/types';
@@ -100,6 +100,7 @@ export interface AppState {
     query:    string;
     category: string;
     pharmacy: string;
+    brand:    string;
     sort:     string;
     priceMin: string;
     priceMax: string;
@@ -145,7 +146,7 @@ const initialState: AppState = {
   authMode:     'login',
   carts:        {},
   checkout: { fulfillment: 'pickup', addressId: null, paymentMethod: 'card', processing: false },
-  search:   { query: '', category: 'All', pharmacy: 'All', sort: 'newest', priceMin: '', priceMax: '' },
+  search:   { query: '', category: 'All', pharmacy: 'All', brand: 'All', sort: 'newest', priceMin: '', priceMax: '' },
   notifPanelOpen: false,
   lightbox:       null,
   pendingImage:   null,
@@ -196,13 +197,18 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'AUTH_RESOLVED': {
       const { user, role, localId } = action;
+      const sessionKeyForRole =
+        (r: NonNullable<UserRole>): 'customer' | 'staff' | 'admin' =>
+          r === 'siteAdmin' ? 'admin'
+            : r === 'pharmacyAdmin' || r === 'staff' ? 'staff'
+            : 'customer';
       const session = { ...initialState.session };
-      if (role && localId) session[role] = localId;
+      if (role && localId) session[sessionKeyForRole(role)] = localId;
       // Route to right default view after login
       let staffView = state.staff.view;
       let adminView = state.admin.view;
-      if (role === 'staff')  staffView = 'orders';
-      if (role === 'admin')  adminView = 'approvals';
+      if (role === 'pharmacyAdmin' || role === 'staff') staffView = 'orders';
+      if (role === 'siteAdmin') adminView = 'approvals';
       return {
         ...state,
         firebaseUser: user,
@@ -313,9 +319,9 @@ async function resolveRole(user: User): Promise<{ role: NonNullable<UserRole>; l
   // 2 — Local DB email match
   const email = user.email ?? '';
   const staffMatch = DB.staff.find((s) => s.email === email && s.status === 'active');
-  if (staffMatch) return { role: 'staff', localId: staffMatch.id };
+  if (staffMatch) return { role: isPharmacyAdmin(staffMatch) ? 'pharmacyAdmin' : 'staff', localId: staffMatch.id };
   const adminMatch = DB.admins.find((a) => a.email === email);
-  if (adminMatch) return { role: 'admin', localId: adminMatch.id };
+  if (adminMatch) return { role: 'siteAdmin', localId: adminMatch.id };
   const custMatch = DB.customers.find((c) => c.email === email);
   if (custMatch) return { role: 'customer', localId: custMatch.id };
 

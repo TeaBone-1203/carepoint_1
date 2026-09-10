@@ -366,6 +366,14 @@ select:focus-visible, textarea:focus-visible {
   border-radius: 999px; width: fit-content;
 }
 
+/* Brand label */
+.cp-med-brand {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 700; color: var(--cp-walnut-soft);
+  letter-spacing: .02em;
+}
+.cp-med-brand::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cp-terracotta); flex-shrink: 0; }
+
 /* Stock line */
 .cp-stock-line { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--cp-walnut-faint); }
 .cp-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }

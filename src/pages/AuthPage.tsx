@@ -63,8 +63,8 @@ const AuthPage: React.FC = () => {
 
   // If already signed in, redirect
   if (!state.authLoading && state.firebaseUser) {
-    const dest = state.activeRole === 'admin' ? '/admin'
-               : state.activeRole === 'staff' ? '/branch'
+    const dest = state.activeRole === 'siteAdmin' ? '/admin'
+               : state.activeRole === 'pharmacyAdmin' || state.activeRole === 'staff' ? '/branch'
                : '/';
     navigate(dest, { replace: true });
     return null;
@@ -73,32 +73,34 @@ const AuthPage: React.FC = () => {
   // ── Local (demo) login — tries in-memory DB first ────────
   function localLogin(email: string, pass: string): boolean {
     const lc = email.toLowerCase();
-    let user: { id: string; name: string; status?: string } | undefined;
-    let role: 'customer' | 'staff' | 'admin' | null = null;
+    let user: { id: string; name: string; status?: string; role?: string } | undefined;
+    let role: 'customer' | 'staff' | 'pharmacyAdmin' | 'siteAdmin' | null = null;
 
     user = DB.customers.find((u) => u.email.toLowerCase() === lc && u.password === pass);
     if (user) role = 'customer';
     if (!user) {
       user = DB.staff.find((u) => u.email.toLowerCase() === lc && u.password === pass);
-      if (user) role = 'staff';
+      if (user) role = user.role === 'pharmacyAdmin' ? 'pharmacyAdmin' : 'staff';
     }
     if (!user) {
       user = DB.admins.find((u) => u.email.toLowerCase() === lc && u.password === pass);
-      if (user) role = 'admin';
+      if (user) role = 'siteAdmin';
     }
     if (!user || !role) return false;
-    if (role === 'staff' && (user as any).status === 'pending') {
-      setError('Your pharmacy is awaiting admin approval.'); return true;
+    if (role === 'pharmacyAdmin' || role === 'staff') {
+      if ((user as any).status === 'pending') {
+        setError('Your pharmacy is awaiting admin approval.'); return true;
+      }
+      if ((user as any).status === 'rejected') {
+        setError('Registration was rejected. Contact support.'); return true;
+      }
     }
-    if (role === 'staff' && (user as any).status === 'rejected') {
-      setError('Registration was rejected. Contact support.'); return true;
-    }
-    if (role !== 'admin' && (user as any).status === 'disabled') {
+    if (role !== 'siteAdmin' && (user as any).status === 'disabled') {
       setError('Account disabled. Contact support.'); return true;
     }
     dispatch({ type: 'AUTH_RESOLVED', user: null, role, localId: user.id });
     toast(`Welcome, ${user.name.split(' ')[0]}!`, 'success');
-    navigate(role === 'admin' ? '/admin' : role === 'staff' ? '/branch' : '/', { replace: true });
+    navigate(role === 'siteAdmin' ? '/admin' : role === 'staff' || role === 'pharmacyAdmin' ? '/branch' : '/', { replace: true });
     return true;
   }
 
@@ -184,16 +186,21 @@ const AuthPage: React.FC = () => {
     const pid = `p_${Date.now()}`;
     const sid = `s_${Date.now()}`;
     DB.pharmacies.push({ id: pid, name: pharmName.trim(), location: pharmLoc.trim(), hours: pharmHours.trim(), status: 'pending' });
-    DB.staff.push({ id: sid, name: phName.trim(), email: phEmail.trim(), password: phPassword, pharmacyId: pid, status: 'pending' });
+    DB.staff.push({ id: sid, name: phName.trim(), email: phEmail.trim(), password: phPassword, pharmacyId: pid, role: 'pharmacyAdmin', status: 'pending' });
     toast('Registration submitted! Awaiting admin approval.', 'success');
     setMode('login');
     setError('');
   }
 
   // ── Demo quick-fill ──────────────────────────────────────
-  function fillLogin(role: 'customer' | 'staff' | 'admin') {
-    const em = { customer: 'juan@example.com', staff: 'alyssa@wellnesscorner.ph', admin: 'admin@carepoint.ph' };
-    const pw = { customer: 'demo123', staff: 'demo123', admin: 'admin123' };
+  function fillLogin(role: 'customer' | 'pharmacyAdmin' | 'staff' | 'siteAdmin') {
+    const em = {
+      customer: 'juan@example.com',
+      pharmacyAdmin: 'alyssa@wellnesscorner.ph',
+      staff: 'luis@wellnesscorner.ph',
+      siteAdmin: 'admin@carepoint.ph',
+    };
+    const pw = { customer: 'demo123', pharmacyAdmin: 'demo123', staff: 'demo123', siteAdmin: 'admin123' };
     setLoginEmail(em[role]); setLoginPassword(pw[role]);
     toast(`⚡ Filled ${role} login.`, 'success');
   }
@@ -325,8 +332,9 @@ const AuthPage: React.FC = () => {
                   <div className="cp-demo-strip">
                     <span className="cp-demo-label">⚡ Quick fill</span>
                     <button type="button" className="cp-btn-demo"     onClick={() => fillLogin('customer')}>Customer</button>
-                    <button type="button" className="cp-btn-demo-alt" onClick={() => fillLogin('staff')}>Staff</button>
-                    <button type="button" className="cp-btn-demo"     onClick={() => fillLogin('admin')}>Admin</button>
+                    <button type="button" className="cp-btn-demo-alt" onClick={() => fillLogin('pharmacyAdmin')}>Pharmacy Admin</button>
+                    <button type="button" className="cp-btn-demo"     onClick={() => fillLogin('staff')}>Staff</button>
+                    <button type="button" className="cp-btn-demo-alt" onClick={() => fillLogin('siteAdmin')}>Site Admin</button>
                     <span style={{ fontSize:10, color:'var(--cp-walnut-faint)', marginLeft:4 }}>(demo)</span>
                   </div>
                   <p className="cp-hint" style={{ textAlign:'center', marginTop:12 }}>

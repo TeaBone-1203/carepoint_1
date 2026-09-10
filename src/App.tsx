@@ -39,13 +39,14 @@ const Spinner: React.FC = () => (
 
 // Route-level guard — blocks direct URL access to role-protected pages.
 // Session is set only after login (Firebase- or demo/local) is resolved.
-function RequireRole({ roles, children }: { roles: Array<'customer' | 'staff' | 'admin'>; children: ReactNode }) {
+function RequireRole({ roles, children }: { roles: Array<'siteAdmin' | 'pharmacyAdmin' | 'staff' | 'customer'>; children: ReactNode }) {
   const { state } = useApp();
   if (state.authLoading) return <Spinner />;
   const allowed =
-    (roles.includes('admin')    && !!state.session.admin) ||
-    (roles.includes('staff')    && !!state.session.staff) ||
-    (roles.includes('customer') && !!state.session.customer);
+    (roles.includes('siteAdmin')    && !!state.session.admin) ||
+    (roles.includes('pharmacyAdmin') && !!state.session.staff && state.activeRole === 'pharmacyAdmin') ||
+    (roles.includes('staff')        && !!state.session.staff && state.activeRole === 'staff') ||
+    (roles.includes('customer')     && !!state.session.customer);
   if (!allowed) return <Navigate to="/auth" replace />;
   return <>{children}</>;
 }
@@ -65,8 +66,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/wishlist"     element={<RequireRole roles={['customer']}><WishlistPage /></RequireRole>} />
       <Route path="/messages"     element={<RequireRole roles={['customer']}><MessagesPage /></RequireRole>} />
       <Route path="/profile"      element={<RequireRole roles={['customer']}><ProfilePage /></RequireRole>} />
-      <Route path="/branch"       element={<RequireRole roles={['staff']}><BranchPortal /></RequireRole>} />
-      <Route path="/admin"        element={<RequireRole roles={['admin']}><AdminPortal /></RequireRole>} />
+      <Route path="/branch"       element={<RequireRole roles={['pharmacyAdmin', 'staff']}><BranchPortal /></RequireRole>} />
+      <Route path="/admin"        element={<RequireRole roles={['siteAdmin']}><AdminPortal /></RequireRole>} />
       <Route path="*"             element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -8,7 +8,7 @@ import { DB, counters } from '../data/db';
 import {
   medicine, pharmacy, medReviews, medRatingAvg,
   money, stockState, stockText, isWishlisted, productDescription,
-  fmtDate, customerName,
+  fmtDate, customerName, medBrand,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
 
@@ -251,6 +251,9 @@ const MedicinePage: React.FC = () => {
             {/* Category pill */}
             <div className="cp-cat-pill" style={{ marginBottom:10 }}>
               💊 {med.category}
+            </div>
+            <div className="cp-med-brand" style={{ marginBottom:8 }}>
+              {medBrand(med)}
             </div>
 
             {/* Gallery */}

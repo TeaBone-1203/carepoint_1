@@ -76,78 +76,91 @@ export const DB: {
     {
       id: 'm1', pharmacyId: 'p1', name: 'Paracetamol 500mg (20 tabs)',
       category: 'Pain Relief', price: 85, stock: 120, prescription: false, sold: 34, addedAt: 10,
+      brand: 'CarePoint Generics',
       description: 'Fast-acting relief for headaches, fever, and everyday aches — gentle on the stomach when taken as directed.',
       specs: { Form: 'Tablet', Strength: '500 mg', 'Pack Size': '20 tablets', Manufacturer: 'CarePoint Generics', Storage: 'Store below 30°C, away from moisture' },
     },
     {
       id: 'm2', pharmacyId: 'p1', name: 'Ibuprofen 200mg (20 tabs)',
       category: 'Pain Relief', price: 120, stock: 60, prescription: false, sold: 19, addedAt: 9,
+      brand: 'CarePoint Generics',
       description: 'An anti-inflammatory pain reliever that eases pain, swelling, and fever — good for muscle aches and minor injuries.',
       specs: { Form: 'Tablet', Strength: '200 mg', 'Pack Size': '20 tablets', Manufacturer: 'CarePoint Generics', Storage: 'Store below 30°C, away from moisture' },
     },
     {
       id: 'm3', pharmacyId: 'p1', name: 'Cetirizine 10mg (10 tabs)',
       category: 'Allergy', price: 95, stock: 40, prescription: false, sold: 12, addedAt: 8,
+      brand: 'CarePoint Generics',
       description: 'A once-daily antihistamine for sneezing, itchy eyes, and a runny nose brought on by allergies.',
       specs: { Form: 'Tablet', Strength: '10 mg', 'Pack Size': '10 tablets', Manufacturer: 'CarePoint Generics', Storage: 'Store below 25°C' },
     },
     {
       id: 'm4', pharmacyId: 'p1', name: 'Cough Syrup — Adult 120ml',
       category: 'Cold & Flu', price: 135, stock: 30, prescription: false, sold: 21, addedAt: 7,
+      brand: 'Wellness Labs',
       description: 'Soothes dry and productive coughs so you can rest easier through a cold.',
       specs: { Form: 'Syrup', Volume: '120 ml', Dosage: '10 ml every 6–8 hours', Manufacturer: 'Wellness Labs PH', Storage: 'Discard 6 months after opening' },
     },
     {
       id: 'm5', pharmacyId: 'p1', name: 'Oral Rehydration Salts (10 sachets)',
       category: 'Digestive', price: 40, stock: 100, prescription: false, sold: 8, addedAt: 6,
+      brand: 'CarePoint Generics',
       description: 'Replaces fluids and electrolytes lost from diarrhea, vomiting, or heat exhaustion.',
       specs: { Form: 'Powder sachet', 'Pack Size': '10 sachets', Preparation: 'Dissolve 1 sachet in 200 ml clean water', Manufacturer: 'CarePoint Generics' },
     },
     {
       id: 'm6', pharmacyId: 'p1', name: 'Amoxicillin 500mg (21 caps)',
       category: 'Prescription', price: 180, stock: 50, prescription: true, sold: 5, addedAt: 5,
+      brand: 'CarePoint Pharma',
       description: 'A broad-spectrum antibiotic used to treat a range of bacterial infections. Prescription required.',
       specs: { Form: 'Capsule', Strength: '500 mg', 'Pack Size': '21 capsules', 'Requires Prescription': 'Yes', Manufacturer: 'CarePoint Pharma' },
     },
     {
       id: 'm7', pharmacyId: 'p1', name: 'Vitamin C 500mg (60 tabs)',
       category: 'Vitamins', price: 150, stock: 200, prescription: false, sold: 41, addedAt: 4,
+      brand: 'Sunrise',
       description: 'Supports everyday immune health and skin with a daily dose of Vitamin C.',
       specs: { Form: 'Tablet', Strength: '500 mg', 'Pack Size': '60 tablets', Manufacturer: 'Sunrise Nutraceuticals' },
     },
     {
       id: 'm8', pharmacyId: 'p1', name: 'Multivitamins (60 tabs)',
       category: 'Vitamins', price: 220, stock: 80, prescription: false, sold: 27, addedAt: 3,
+      brand: 'Sunrise',
       description: 'A complete daily multivitamin covering essential vitamins and minerals for everyday energy.',
       specs: { Form: 'Tablet', 'Pack Size': '60 tablets', Dosage: '1 tablet daily with food', Manufacturer: 'Sunrise Nutraceuticals' },
     },
     {
       id: 'm9', pharmacyId: 'p1', name: 'Antiseptic Solution 250ml',
       category: 'First Aid', price: 75, stock: 55, prescription: false, sold: 6, addedAt: 2,
+      brand: 'CarePoint Generics',
       description: 'A gentle antiseptic solution for cleaning minor cuts, scrapes, and grazes.',
       specs: { Form: 'Liquid', Volume: '250 ml', 'Active Ingredient': 'Povidone-iodine 10%', Manufacturer: 'CarePoint Generics' },
     },
     {
       id: 'm10', pharmacyId: 'p1', name: 'Hydrocortisone Cream 1% 20g',
       category: 'Skin Care', price: 180, stock: 6, prescription: false, sold: 3, addedAt: 1,
+      brand: 'CarePoint Generics',
       description: 'A mild topical steroid cream that calms itching, redness, and irritation.',
       specs: { Form: 'Cream', Strength: '1%', Volume: '20 g', Application: 'Thin layer, 1–2 times daily', Manufacturer: 'CarePoint Generics' },
     },
     {
       id: 'm11', pharmacyId: 'p1', name: 'Salbutamol Inhaler 100mcg',
       category: 'Prescription', price: 320, stock: 40, prescription: true, sold: 2, addedAt: 0,
+      brand: 'CarePoint Pharma',
       description: 'A fast-acting reliever inhaler for asthma and sudden breathing difficulty. Prescription required.',
       specs: { Form: 'Metered-dose inhaler', Strength: '100 mcg/puff', 'Requires Prescription': 'Yes', Manufacturer: 'CarePoint Pharma' },
     },
     {
       id: 'm_pending1', pharmacyId: 'p_pending', name: 'Echinacea Drops 30ml',
       category: 'Cold & Flu', price: 210, stock: 45, prescription: false, sold: 0, addedAt: 0,
+      brand: 'Greenleaf Botanicals',
       description: 'An herbal tincture traditionally used to support the immune system at the first sign of a cold.',
       specs: { Form: 'Liquid drops', Volume: '30 ml', Manufacturer: 'Greenleaf Botanicals' },
     },
     {
       id: 'm_pending2', pharmacyId: 'p_pending', name: 'Ginger & Honey Lozenges',
       category: 'Cold & Flu', price: 95, stock: 60, prescription: false, sold: 0, addedAt: 0,
+      brand: 'Greenleaf Botanicals',
       description: 'Soothing lozenges that ease a scratchy throat with real ginger and honey.',
       specs: { Form: 'Lozenge', 'Pack Size': '12 lozenges', Manufacturer: 'Greenleaf Botanicals' },
     },
@@ -168,11 +181,15 @@ export const DB: {
   staff: [
     {
       id: 's1', name: 'Alyssa Reyes', email: 'alyssa@wellnesscorner.ph',
-      password: 'demo123', pharmacyId: 'p1', status: 'active',
+      password: 'demo123', pharmacyId: 'p1', role: 'pharmacyAdmin', status: 'active',
+    },
+    {
+      id: 's_team', name: 'Luis Tan', email: 'luis@wellnesscorner.ph',
+      password: 'demo123', pharmacyId: 'p1', role: 'staff', status: 'active',
     },
     {
       id: 's_pending', name: 'Maria Santos', email: 'maria@greenleaf.ph',
-      password: 'demo123', pharmacyId: 'p_pending', status: 'pending',
+      password: 'demo123', pharmacyId: 'p_pending', role: 'staff', status: 'pending',
     },
   ],
 
@@ -194,7 +211,26 @@ export const DB: {
   ],
 
   threads: [],
-  flags: [],
+  flags: [
+    {
+      id: 'flg1', status: 'open', type: 'account', note: 'Reported by a shopper',
+      at: new Date(Date.now() - 1000 * 60 * 60 * 6),
+      reason: 'Customer reported an issue with this pharmacy.',
+      targetType: 'pharmacy', targetId: 'p1',
+    },
+    {
+      id: 'flg2', status: 'open', type: 'product', note: 'Possible listing concern',
+      at: new Date(Date.now() - 1000 * 60 * 60 * 26),
+      reason: 'Listing flagged for review by pharmacy staff.',
+      targetType: 'medicine', targetId: 'm10',
+    },
+    {
+      id: 'flg3', status: 'open', type: 'transaction', note: 'Disputed transaction',
+      at: new Date(Date.now() - 1000 * 60 * 60 * 49),
+      reason: 'Order-level dispute reported at checkout helpdesk.',
+      targetType: 'order', targetId: 'o1001',
+    },
+  ] as any[],
 
   reviews: [
     {
@@ -268,6 +304,7 @@ export const counters = {
   notif: nextCounter(DB.notifications, 'n', 1),
   ret: nextCounter(DB.returns, 'r', 1),
   admin: nextCounter(DB.admins, 'a', 2),
+  staff: nextCounter(DB.staff, 's', 2),
   log: 1,
   audit: nextCounter(DB.auditLog, 'audit', 1),
   promo: nextCounter(DB.promotions, 'promo', 1),

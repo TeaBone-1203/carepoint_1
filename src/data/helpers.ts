@@ -3,7 +3,7 @@
 // ============================================================
 
 import { DB, counters } from './db';
-import type { Medicine, Order, Notification } from './types';
+import type { Medicine, Order, Notification, StaffMember } from './types';
 
 // ---------- Currency ----------
 
@@ -67,6 +67,51 @@ export const customer = (id: string) => DB.customers.find((c) => c.id === id);
 export const staffMember = (id: string) => DB.staff.find((s) => s.id === id);
 export const adminUser = (id: string) => DB.admins.find((a) => a.id === id);
 export const order = (id: string) => DB.orders.find((o) => o.id === id);
+
+// ---------- Brand helpers ----------
+
+/** Resolve a product's brand: explicit field → spec Manufacturer → generic fallback. */
+export function medBrand(m: { brand?: string; specs?: Record<string, string> }): string {
+  if (m.brand && m.brand.trim()) return m.brand.trim();
+  const specBrand = m.specs?.['Brand'] || m.specs?.['Manufacturer'];
+  if (specBrand && specBrand.trim()) return specBrand.trim();
+  return 'Generic';
+}
+
+/** Distinct brands offered on the public storefront, sorted alphabetically. */
+export function brandList(): string[] {
+  return [...new Set(
+    publicMedicines()
+      .map((m) => medBrand(m))
+      .filter((b) => b && b !== 'Generic'),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+// ---------- Staff / role helpers ----------
+
+/** True when the staff member is a Pharmacy-level administrator. */
+export function isPharmacyAdmin(s?: { role?: string }): boolean {
+  return s?.role === 'pharmacyAdmin';
+}
+
+/** Human-readable label for an active user role. */
+export function roleLabel(role: string | null | undefined): string {
+  if (role === 'siteAdmin')     return 'Site Admin';
+  if (role === 'pharmacyAdmin') return 'Pharmacy Admin';
+  if (role === 'staff')         return 'Staff';
+  if (role === 'customer')      return 'Customer';
+  return 'Unknown';
+}
+
+/** Pharmacy admins assigned to a pharmacy. */
+export function pharmacyManagers(pharmacyId: string): StaffMember[] {
+  return DB.staff.filter((s) => s.pharmacyId === pharmacyId && s.role === 'pharmacyAdmin');
+}
+
+/** Regular staff members of a pharmacy (excludes pharmacy admins). */
+export function pharmacyTeam(pharmacyId: string): StaffMember[] {
+  return DB.staff.filter((s) => s.pharmacyId === pharmacyId && (s.role ?? 'staff') === 'staff');
+}
 
 export const pharmacyName = (id: string): string => {
   const p = pharmacy(id);
