@@ -17,6 +17,17 @@ const MessagesPage: React.FC = () => {
   const custId = state.session.customer;
   if (!custId) { navigate('/auth', { replace:true }); return null; }
 
+  // Shared lightbox (AppContext) — same instance used in MedicinePage
+  const lightboxSrc    = state.lightbox?.src    ?? null;
+  const lightboxZoomed = state.lightbox?.zoomed ?? false;
+
+  function openLightbox(src: string) {
+    dispatch({ type: 'SET_LIGHTBOX', lightbox: { src, zoomed: false } });
+  }
+  function closeLightbox() {
+    dispatch({ type: 'SET_LIGHTBOX', lightbox: null });
+  }
+
   const threads = DB.threads.filter((t) => t.customerId === custId);
 
   function openThread(id: string) {
@@ -68,6 +79,29 @@ const MessagesPage: React.FC = () => {
     if (!t) return null;
     return (
       <div className="cp-page">
+        {/* ── Lightbox overlay ─────────────────────────── */}
+        {lightboxSrc && (
+          <div className="cp-lightbox-overlay" onClick={closeLightbox}>
+            <button className="cp-lightbox-close" onClick={closeLightbox}>✕</button>
+            <button
+              className="cp-lightbox-zoom"
+              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_LIGHTBOX_ZOOM' }); }}
+              title={lightboxZoomed ? 'Zoom out' : 'Zoom in'}
+            >
+              {lightboxZoomed ? '🔍−' : '🔍+'}
+            </button>
+            <div className="cp-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+              <img
+                className={lightboxZoomed ? 'zoomed' : 'fit'}
+                src={lightboxSrc}
+                alt="Rx preview"
+                onClick={() => dispatch({ type: 'TOGGLE_LIGHTBOX_ZOOM' })}
+                style={{ cursor: lightboxZoomed ? 'zoom-out' : 'zoom-in' }}
+              />
+            </div>
+          </div>
+        )}
+
         <div style={{ overflowY: "auto" }}>
           <div style={{ maxWidth:700, margin:'0 auto', padding:'28px 16px 80px' }}>
             <button className="cp-btn-link" onClick={() => setOpenThreadId(null)}>← Back</button>
@@ -88,7 +122,13 @@ const MessagesPage: React.FC = () => {
                   : t.messages.map((msg, i) => (
                     <div key={i} className={`cp-thread-bubble ${msg.from}`}>
                       {(msg as any).image && (
-                        <img src={(msg as any).image} alt="Rx" style={{ maxWidth:200, borderRadius:10, display:'block', marginBottom:6, cursor:'zoom-in' }} />
+                        <img
+                          src={(msg as any).image}
+                          alt="Rx"
+                          style={{ maxWidth:200, borderRadius:10, display:'block', marginBottom:6, cursor:'zoom-in' }}
+                          onClick={() => openLightbox((msg as any).image)}
+                          title="Click to view full size"
+                        />
                       )}
                       {msg.text && <div>{msg.text}</div>}
                       <div className="meta">{msg.from==='staff' ? 'Pharmacy' : 'You'} · {fmtDate(msg.at)}</div>

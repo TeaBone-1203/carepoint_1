@@ -84,7 +84,16 @@ const MedicinePage: React.FC = () => {
 
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [reviewRating, setReviewRating] = useState(5);
-  const [lightbox, setLightbox] = useState<string|null>(null);
+  // Use shared AppContext lightbox so zoom state is global
+  const lightboxSrc    = state.lightbox?.src    ?? null;
+  const lightboxZoomed = state.lightbox?.zoomed ?? false;
+
+  function openLightbox(src: string) {
+    dispatch({ type: 'SET_LIGHTBOX', lightbox: { src, zoomed: false } });
+  }
+  function closeLightbox() {
+    dispatch({ type: 'SET_LIGHTBOX', lightbox: null });
+  }
 
   if (!m) {
     return (
@@ -195,11 +204,24 @@ const MedicinePage: React.FC = () => {
       <div style={{ overflowY: "auto" }}>
 
         {/* Lightbox */}
-        {lightbox && (
-          <div className="cp-lightbox-overlay" onClick={() => setLightbox(null)}>
-            <button className="cp-lightbox-close" onClick={() => setLightbox(null)}>✕</button>
-            <div className="cp-lightbox-inner">
-              <img className="fit" src={lightbox} alt="prescription" />
+        {lightboxSrc && (
+          <div className="cp-lightbox-overlay" onClick={closeLightbox}>
+            <button className="cp-lightbox-close" onClick={closeLightbox}>✕</button>
+            <button
+              className="cp-lightbox-zoom"
+              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_LIGHTBOX_ZOOM' }); }}
+              title={lightboxZoomed ? 'Zoom out' : 'Zoom in'}
+            >
+              {lightboxZoomed ? '🔍−' : '🔍+'}
+            </button>
+            <div className="cp-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+              <img
+                className={lightboxZoomed ? 'zoomed' : 'fit'}
+                src={lightboxSrc}
+                alt="preview"
+                onClick={() => dispatch({ type: 'TOGGLE_LIGHTBOX_ZOOM' })}
+                style={{ cursor: lightboxZoomed ? 'zoom-out' : 'zoom-in' }}
+              />
             </div>
           </div>
         )}
@@ -233,10 +255,18 @@ const MedicinePage: React.FC = () => {
 
             {/* Gallery */}
             <div style={{ textAlign:'center', marginBottom:16 }}>
-              {/* Main image */}
+              {/* Main image — click to open lightbox */}
               <div className="cp-med-picture cp-med-picture-lg"
                 style={{ width:140, height:140, margin:'0 auto 12px',
-                  background:`linear-gradient(140deg,${gallerySlots[galleryIdx].g1},${gallerySlots[galleryIdx].g2})` }}>
+                  background:`linear-gradient(140deg,${gallerySlots[galleryIdx].g1},${gallerySlots[galleryIdx].g2})`,
+                  cursor:'zoom-in' }}
+                onClick={() => {
+                  // Build a data-URI placeholder so lightbox always has something to show
+                  const slot = gallerySlots[galleryIdx];
+                  // If the medicine has a real image URL at this index, prefer it
+                  const realImg = med.images?.[galleryIdx];
+                  if (realImg) { openLightbox(realImg); }
+                }}>
                 <span className="cp-med-emoji" style={{ fontSize:64 }}>{gallerySlots[galleryIdx].emoji}</span>
                 <span className="cp-med-label">{gallerySlots[galleryIdx].label}</span>
               </div>

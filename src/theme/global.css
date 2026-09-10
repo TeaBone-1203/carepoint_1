@@ -481,7 +481,9 @@ select:focus-visible, textarea:focus-visible {
 .cp-lightbox-inner { min-height: 100%; display: flex; align-items: center; justify-content: center; }
 .cp-lightbox-inner img { border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,.5); cursor: zoom-in; }
 .cp-lightbox-inner img.fit { max-width: 90vw; max-height: 82vh; }
+.cp-lightbox-inner img.zoomed { max-width: none; max-height: none; width: auto; height: auto; cursor: zoom-out; }
 .cp-lightbox-close { position: fixed; top: 16px; right: 16px; z-index: 2001; background: var(--cp-surface); color: var(--cp-walnut); border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 17px; cursor: pointer; box-shadow: var(--cp-shadow-lg); }
+.cp-lightbox-zoom  { position: fixed; top: 16px; right: 64px;  z-index: 2001; background: var(--cp-surface); color: var(--cp-walnut); border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 14px; cursor: pointer; box-shadow: var(--cp-shadow-lg); }
 
 /* ============================================================
    TOAST

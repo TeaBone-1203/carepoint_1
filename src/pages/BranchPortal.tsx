@@ -4,6 +4,7 @@
 // ============================================================
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PharmacyMapStaff } from '../components/PharmacyMap';
 import { DB, counters } from '../data/db';
 import {
   medicine, pharmacy, staffMember, order,
@@ -587,20 +588,90 @@ function Notices({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
 
 // ── Tab: Profile ──────────────────────────────────────────────
 function PharmacyProfile({ph,dispatch,toast}:{ph:ReturnType<typeof pharmacy>;dispatch:any;toast:any}){
-  const[n,setN]=useState(ph?.name??'');const[l,setL]=useState(ph?.location??'');const[h,setH]=useState(ph?.hours??'');
-  if(!ph)return null;
-  const phDef=ph!;
-  function save(e:React.FormEvent){e.preventDefault();if(!n.trim()||!l.trim()||!h.trim()){toast('All fields required.','error');return;}phDef.name=n.trim();phDef.location=l.trim();phDef.hours=h.trim();toast('Profile updated.','success');dispatch({type:'SET_SEARCH',payload:{}});}
-  return(
+  const [n, setN] = useState(ph?.name     ?? '');
+  const [l, setL] = useState(ph?.location ?? '');
+  const [h, setH] = useState(ph?.hours    ?? '');
+  // lat/lng stored as strings for the controlled inputs; persisted as numbers on ph
+  const [lat, setLat] = useState(String((ph as any)?.lat ?? ''));
+  const [lng, setLng] = useState(String((ph as any)?.lng ?? ''));
+
+  if (!ph) return null;
+  const phDef = ph!;
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!n.trim() || !l.trim() || !h.trim()) { toast('All fields required.', 'error'); return; }
+    phDef.name     = n.trim();
+    phDef.location = l.trim();
+    phDef.hours    = h.trim();
+    // Persist coordinates back onto the pharmacy object
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+    if (!isNaN(parsedLat)) (phDef as any).lat = parsedLat;
+    if (!isNaN(parsedLng)) (phDef as any).lng = parsedLng;
+    toast('Profile updated.', 'success');
+    dispatch({ type: 'SET_SEARCH', payload: {} });
+  }
+
+  // Called by the draggable map when the marker is moved
+  function handleMapCoords(newLat: string, newLng: string) {
+    setLat(newLat);
+    setLng(newLng);
+  }
+
+  return (
     <div>
-      <h2 style={{fontFamily:'var(--cp-font-display)',fontSize:24,margin:'0 0 20px'}}>Pharmacy Profile</h2>
-      <div className="cp-card"style={{maxWidth:480}}>
-        <form onSubmit={save}>
-          <div className="cp-field"><label>Name</label><input type="text"value={n}onChange={e=>setN(e.target.value)}/></div>
-          <div className="cp-field"><label>Location</label><input type="text"value={l}onChange={e=>setL(e.target.value)}/></div>
-          <div className="cp-field"><label>Hours</label><input type="text"value={h}onChange={e=>setH(e.target.value)}/></div>
-          <button type="submit"className="cp-btn cp-btn-primary">Save</button>
-        </form>
+      <h2 style={{ fontFamily:'var(--cp-font-display)', fontSize:24, margin:'0 0 20px' }}>Pharmacy Profile</h2>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:20 }}>
+
+        {/* ── Details form ── */}
+        <div className="cp-card">
+          <h3 style={{ marginTop:0, fontSize:15 }}>Branch details</h3>
+          <form onSubmit={save}>
+            <div className="cp-field"><label>Name</label>
+              <input type="text" value={n} onChange={e => setN(e.target.value)} />
+            </div>
+            <div className="cp-field"><label>Location</label>
+              <input type="text" value={l} onChange={e => setL(e.target.value)} />
+            </div>
+            <div className="cp-field"><label>Hours</label>
+              <input type="text" value={h} onChange={e => setH(e.target.value)} />
+            </div>
+
+            {/* Lat / Lng — synced by the map drag or editable manually */}
+            <div style={{ display:'flex', gap:10 }}>
+              <div className="cp-field" style={{ flex:1 }}>
+                <label>Latitude</label>
+                <input type="number" step="any" value={lat}
+                  onChange={e => setLat(e.target.value)}
+                  placeholder="e.g. 14.5995" />
+              </div>
+              <div className="cp-field" style={{ flex:1 }}>
+                <label>Longitude</label>
+                <input type="number" step="any" value={lng}
+                  onChange={e => setLng(e.target.value)}
+                  placeholder="e.g. 120.9842" />
+              </div>
+            </div>
+            <p className="cp-hint" style={{ marginTop:-6, marginBottom:12 }}>
+              Drag the pin on the map to auto-fill coordinates, or enter them manually.
+            </p>
+
+            <button type="submit" className="cp-btn cp-btn-primary">Save profile</button>
+          </form>
+        </div>
+
+        {/* ── Interactive map ── */}
+        <div className="cp-card">
+          <h3 style={{ marginTop:0, fontSize:15 }}>📍 Store location pin</h3>
+          <PharmacyMapStaff
+            lat={parseFloat(lat) || 14.5995}
+            lng={parseFloat(lng) || 120.9842}
+            onCoordsChange={handleMapCoords}
+            height={260}
+          />
+        </div>
+
       </div>
     </div>
   );

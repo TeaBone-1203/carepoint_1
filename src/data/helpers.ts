@@ -521,3 +521,73 @@ export function logAudit(actor: string, action: string): void {
   DB.auditLog.unshift({ id: 'audit' + counters.audit++, at: new Date(), actor, action });
   if (DB.auditLog.length > 300) DB.auditLog.length = 300;
 }
+
+// ============================================================
+//  nextCounter — public re-export of the prototype's ID util
+//
+//  Mirrors the prototype's nextCounter(list, prefix, fallback)
+//  logic. Parses numeric suffixes from entity IDs to return
+//  the next safe integer, preventing duplicate primary keys
+//  when creating new orders, threads, medicines, reviews, etc.
+// ============================================================
+
+/**
+ * Returns the next auto-increment integer for an ID-keyed list.
+ *
+ * @param list     Array of objects with an `id: string` field.
+ * @param prefix   The non-numeric prefix to strip (e.g. 'o', 'm', 'rv').
+ * @param fallback Value to use when the list is empty.
+ *
+ * @example
+ *   nextCounter(DB.orders, 'o', 1001)   // → 1003 if highest id is 'o1002'
+ *   nextCounter(DB.reviews, 'rv', 1)    // → 2    if highest id is 'rv1'
+ */
+export function nextCounter(
+  list: { id: string }[],
+  prefix: string,
+  fallback: number,
+): number {
+  const nums = list
+    .map((r) => parseInt(r.id.replace(prefix, ''), 10))
+    .filter((n) => !isNaN(n));
+  return nums.length ? Math.max(...nums) + 1 : fallback;
+}
+
+// ============================================================
+//  pharmacyMapHtml — customer map canvas template generator
+//
+//  Mirrors the prototype's pharmacyMapHtml(ph, canvasId).
+//  Returns an HTML string with the .pharmacy-map-view container
+//  that initCustomerPharmacyMaps() picks up via querySelectorAll.
+//  In the React app this is used as a data-URI fallback for
+//  environments where dangerouslySetInnerHTML is preferred;
+//  the PharmacyMapCustomer component is the idiomatic React way.
+// ============================================================
+
+/**
+ * Generates the HTML markup string for a customer-facing
+ * pharmacy mini-map canvas. The caller is responsible for
+ * injecting the returned string into the DOM and then running
+ * initCustomerMap() (or the React equivalent) on it.
+ *
+ * @param ph        Pharmacy object with at minimum `id`, `name`,
+ *                  and optional `lat`/`lng` numeric properties.
+ * @param canvasId  Optional explicit element id for the canvas div.
+ */
+export function pharmacyMapHtml(
+  ph: { id: string; name: string; lat?: number; lng?: number },
+  canvasId?: string,
+): string {
+  const id  = canvasId ?? `phmap-${ph.id}`;
+  const lat = typeof ph.lat === 'number' ? ph.lat : 0;
+  const lng = typeof ph.lng === 'number' ? ph.lng : 0;
+  return (
+    `<div class="pharmacy-map-view" ` +
+    `id="${id}" ` +
+    `data-lat="${lat}" ` +
+    `data-lng="${lng}" ` +
+    `data-name="${ph.name.replace(/"/g, '&quot;')}" ` +
+    `style="width:100%;height:180px;border-radius:14px;overflow:hidden;">` +
+    `</div>`
+  );
+}
