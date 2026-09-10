@@ -1,27 +1,42 @@
 // ============================================================
-//  CarePoint — PharmacyMap component
+//  CarePoint — PharmacyMap component (Leaflet / OpenStreetMap)
 //
-//  Two modes controlled by the `mode` prop:
+//  No API key required. Uses:
+//    • leaflet 1.9      — map renderer
+//    • OpenStreetMap    — free tile provider
 //
-//  mode="staff"    — Draggable pin; staff can drag to set the
-//                    exact store location. Fires onCoordsChange
-//                    with (lat, lng) on every dragend.
+//  Two named exports:
+//  ─────────────────
+//  PharmacyMapStaff     — Draggable pin. Branch Portal Profile
+//                         tab. Staff drags to set store lat/lng.
 //
-//  mode="customer" — Read-only mini-map showing the pharmacy
-//                    pin. No interaction. Mirrors the prototype's
-//                    initCustomerPharmacyMaps() batch initialiser.
+//  PharmacyMapCustomer  — Read-only mini-map. Shown to customers
+//                         on product detail / checkout / browse.
 //
-//  When the Google Maps SDK is not configured (missing API key)
-//  both modes gracefully fall back to a styled placeholder card.
+//  Both gracefully degrade to a styled placeholder when coords
+//  are not set (lat === 0 && lng === 0).
 // ============================================================
 
 import React, { useRef, useEffect, useId } from 'react';
+import L from 'leaflet';
+
+// Leaflet's CSS must be imported once somewhere in the app.
+// Importing here guarantees it's always loaded with the component.
+import 'leaflet/dist/leaflet.css';
+
 import {
-  useGoogleMaps,
   initPharmacyMap,
   initCustomerMap,
   setPharmLatLngFields,
-} from '../hooks/useGoogleMaps';
+  destroyMap,
+  OSM_TILE_URL,
+  OSM_ATTRIBUTION,
+} from '../hooks/useLeafletMap';
+
+// Suppress unused-import warnings — OSM_TILE_URL / OSM_ATTRIBUTION
+// are exported for consumers who need the raw strings.
+void OSM_TILE_URL;
+void OSM_ATTRIBUTION;
 
 // ── Shared fallback ──────────────────────────────────────────
 
@@ -50,22 +65,29 @@ function MapFallback({ height, message }: { height: number | string; message: st
   );
 }
 
-// ── Staff map (draggable) ────────────────────────────────────
+// ── Staff map — draggable pin ────────────────────────────────
 
 interface StaffMapProps {
-  /** Initial latitude — defaults to Manila city centre. */
+  /** Initial latitude. Defaults to Manila city centre (14.5995). */
   lat?: number;
-  /** Initial longitude — defaults to Manila city centre. */
+  /** Initial longitude. Defaults to Manila city centre (120.9842). */
   lng?: number;
-  /** Called with updated coordinates whenever the marker is dragged. */
+  /** Called with formatted string coords whenever the marker is dragged. */
   onCoordsChange?: (lat: string, lng: string) => void;
-  /** Height of the map canvas in px. Default: 280. */
+  /** Canvas height in px. Default: 280. */
   height?: number;
 }
 
 /**
- * PharmacyMapStaff — draggable pin for the Branch Portal
- * Profile tab. Lets staff set their store's exact lat/lng.
+ * PharmacyMapStaff
+ *
+ * Interactive Leaflet map with a draggable marker.
+ * Used in the Branch Portal → Profile tab so staff can pin
+ * their store location on an OpenStreetMap base layer.
+ *
+ * Lifecycle: map instance is created on mount and destroyed on
+ * unmount to prevent Leaflet's "map container already initialized"
+ * error during React hot-module replacement.
  */
 export function PharmacyMapStaff({
   lat = 14.5995,
@@ -73,70 +95,89 @@ export function PharmacyMapStaff({
   onCoordsChange,
   height = 280,
 }: StaffMapProps) {
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const mapRef    = useRef<google.maps.Map | null>(null);
-  const { ready, loading } = useGoogleMaps();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef       = useRef<L.Map | null>(null);
 
   useEffect(() => {
-    if (!ready || !canvasRef.current || mapRef.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
     mapRef.current = initPharmacyMap(
-      canvasRef.current,
+      containerRef.current,
       lat,
       lng,
       (newLat, newLng) => {
         if (onCoordsChange) {
-          // Use helper to format to 6dp, then pass as strings
           let lStr = '', gStr = '';
           setPharmLatLngFields(newLat, newLng, (v) => { lStr = v; }, (v) => { gStr = v; });
           onCoordsChange(lStr, gStr);
         }
       },
     );
-  }, [ready, lat, lng, onCoordsChange]);
 
-  if (loading) {
-    return <MapFallback height={height} message="Loading map…" />;
-  }
+    // invalidateSize fixes tiles not loading inside flex/grid parents
+    setTimeout(() => mapRef.current?.invalidateSize(), 0);
 
-  if (!ready) {
-    return (
-      <MapFallback
-        height={height}
-        message="Map unavailable — add VITE_GOOGLE_MAPS_API_KEY to .env to enable location pin."
-      />
-    );
-  }
+    return () => {
+      destroyMap(mapRef.current);
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount — lat/lng changes handled via map.setView below
+
+  // Sync external lat/lng prop changes to the live map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.setView([lat || 14.5995, lng || 120.9842]);
+  }, [lat, lng]);
 
   return (
-    <div style={{ borderRadius: 'var(--cp-radius-lg, 14px)', overflow: 'hidden', border: '1px solid var(--cp-stone-dark, #ccc)' }}>
-      <div ref={canvasRef} style={{ width: '100%', height }} />
+    <div
+      style={{
+        borderRadius: 'var(--cp-radius-lg, 14px)',
+        overflow: 'hidden',
+        border: '1px solid var(--cp-stone-dark, #ccc)',
+      }}
+    >
+      {/* Leaflet requires explicit height on the container */}
+      <div ref={containerRef} style={{ width: '100%', height }} />
       <p style={{ margin: '6px 8px 4px', fontSize: 11.5, color: 'var(--cp-walnut-faint, #999)' }}>
-        🖱️ Drag the pin to set the exact store location.
+        🖱️ Drag the pin to set the exact store location. Powered by{' '}
+        <a href="https://www.openstreetmap.org" target="_blank" rel="noopener noreferrer"
+          style={{ color: 'var(--cp-terracotta, #b5634a)' }}>
+          OpenStreetMap
+        </a>.
       </p>
     </div>
   );
 }
 
-// ── Customer map (read-only) ─────────────────────────────────
+// ── Customer map — read-only mini-map ────────────────────────
 
 interface CustomerMapProps {
-  /** Pharmacy latitude — parsed from the pharmacy's stored location string or seed data. */
+  /** Pharmacy latitude. */
   lat: number;
   /** Pharmacy longitude. */
   lng: number;
-  /** Pharmacy name shown as the marker tooltip. */
+  /** Pharmacy name — shown in the marker popup. */
   name: string;
-  /** Canvas ID — mirrors the prototype's `canvasId` parameter. */
+  /**
+   * Optional explicit element id.
+   * Mirrors the prototype's pharmacyMapHtml canvasId parameter.
+   */
   canvasId?: string;
-  /** Height of the map canvas in px. Default: 180. */
+  /** Canvas height in px. Default: 180. */
   height?: number;
 }
 
 /**
- * PharmacyMapCustomer — read-only mini-map shown to customers
- * on product detail, checkout, and pharmacy browse pages.
- * Mirrors pharmacyMapHtml() + initCustomerPharmacyMaps().
+ * PharmacyMapCustomer
+ *
+ * Read-only Leaflet mini-map centred on the pharmacy location.
+ * Shown to customers on product detail, checkout, and pharmacy
+ * browse pages. All pointer interaction is disabled.
+ *
+ * Mirrors the prototype's pharmacyMapHtml() + initCustomerPharmacyMaps().
  */
 export function PharmacyMapCustomer({
   lat,
@@ -145,51 +186,50 @@ export function PharmacyMapCustomer({
   canvasId,
   height = 180,
 }: CustomerMapProps) {
-  // Generate a stable ID when no explicit canvasId is provided
-  const autoId = useId();
-  const resolvedId = canvasId ?? `phmap-${autoId}`;
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const mapRef    = useRef<google.maps.Map | null>(null);
-  const { ready, loading } = useGoogleMaps();
+  const autoId       = useId();
+  const resolvedId   = canvasId ?? `phmap-${autoId}`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef       = useRef<L.Map | null>(null);
 
-  // Validate coords — skip map if both are zero (not set by staff yet)
+  // Treat 0,0 as "not set" — show friendly placeholder instead
   const hasCoords = lat !== 0 || lng !== 0;
 
   useEffect(() => {
-    if (!ready || !canvasRef.current || mapRef.current || !hasCoords) return;
-    mapRef.current = initCustomerMap(canvasRef.current, lat, lng, name);
-  }, [ready, lat, lng, name, hasCoords]);
+    if (!containerRef.current || mapRef.current || !hasCoords) return;
+
+    mapRef.current = initCustomerMap(containerRef.current, lat, lng, name);
+    setTimeout(() => mapRef.current?.invalidateSize(), 0);
+
+    return () => {
+      destroyMap(mapRef.current);
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!hasCoords) {
-    return <MapFallback height={height} message="Location not set by pharmacy yet." />;
-  }
-
-  if (loading) {
-    return <MapFallback height={height} message="Loading map…" />;
-  }
-
-  if (!ready) {
-    return <MapFallback height={height} message="Map preview unavailable." />;
+    return <MapFallback height={height} message="Location not yet set by the pharmacy." />;
   }
 
   return (
     <div
-      // data-* attrs mirror the prototype's pharmacyMapHtml dataset pattern
+      id={resolvedId}
+      className="pharmacy-map-view"
+      // data-* attrs mirror the prototype's dataset pattern used by
+      // initCustomerPharmacyMaps() querySelectorAll batch initialiser
       data-lat={lat}
       data-lng={lng}
       data-name={name}
-      id={resolvedId}
-      className="pharmacy-map-view"
       style={{
         borderRadius: 'var(--cp-radius-lg, 14px)',
         overflow: 'hidden',
         border: '1px solid var(--cp-stone-dark, #ccc)',
       }}
     >
-      <div ref={canvasRef} style={{ width: '100%', height }} />
+      <div ref={containerRef} style={{ width: '100%', height }} />
     </div>
   );
 }
 
-// ── Default export (staff variant for ergonomic imports) ─────
+// ── Default export ───────────────────────────────────────────
 export default PharmacyMapStaff;

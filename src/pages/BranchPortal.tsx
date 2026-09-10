@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PharmacyMapStaff } from '../components/PharmacyMap';
+// PharmacyMap now uses Leaflet + OpenStreetMap (no API key required)
 import { DB, counters } from '../data/db';
 import {
   medicine, pharmacy, staffMember, order,
