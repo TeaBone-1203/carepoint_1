@@ -27,6 +27,13 @@ const ProfilePage: React.FC = () => {
   function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !email.trim()) { toast('Name and email are required.','error'); return; }
+    const lc = email.trim().toLowerCase();
+    if (DB.customers.some((x) => x.id !== c.id && x.email.toLowerCase() === lc)) {
+      toast('That email is already in use by another account.','error'); return;
+    }
+    if (DB.staff.some((x) => x.email.toLowerCase() === lc) || DB.admins.some((x) => x.email.toLowerCase() === lc)) {
+      toast('That email is already in use by a staff/admin account.','error'); return;
+    }
     c.name  = name.trim();
     c.email = email.trim();
     toast('Profile updated.','success');

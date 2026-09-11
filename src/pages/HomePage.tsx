@@ -196,21 +196,21 @@ const HomePage: React.FC = () => {
     if (state.activeRole==='siteAdmin')  navigate('/admin',  { replace:true });
   }, [state.activeRole, navigate]);
 
-  // Redirect customer sub-views to their own routes
+  // Redirect customer sub-views to their own routes.
+  // When the user explicitly lands back on / (the Home page) with a stale
+  // sub-view in state (e.g. "orders" left over from placing an order), reset
+  // the view to "home" instead of bouncing them straight back to a sub-page.
   const view = state.customer.view;
   useEffect(() => {
     if (!isCustomer) return;
-    if (view==='cart')      navigate('/cart');
-    if (view==='checkout')  navigate('/checkout');
-    if (view==='orders' || view==='orderDetail') navigate('/orders');
-    if (view==='messages' || view==='thread')    navigate('/messages');
-    if (view==='wishlist')  navigate('/wishlist');
-    if (view==='profile')   navigate('/profile');
-    if (view==='medicine' && state.customer.medId) navigate(`/medicine/${state.customer.medId}`);
-  }, [view, isCustomer, navigate, state.customer.medId]);
+    if (view === 'home') return;
+    dispatch({ type: 'SET_CUSTOMER_VIEW', view: 'home' });
+  }, [view, isCustomer, dispatch]);
 
   // Close notif panel on outside click
   const notifPanelOpen = state.notifPanelOpen;
+  const panelOpenRef   = React.useRef(notifPanelOpen);
+  panelOpenRef.current = notifPanelOpen;
   useEffect(() => {
     if (!notifPanelOpen) return;
     const h = () => dispatch({ type:'CLOSE_NOTIF_PANEL' });
@@ -288,6 +288,7 @@ const HomePage: React.FC = () => {
                   // Mark notifications as read only AFTER the panel has been open a moment,
                   // so unread highlights are visible while the drawer is on screen.
                   if (custId) window.setTimeout(()=>{
+                    if (!panelOpenRef.current) return;   // user closed the panel — keep the unread dots
                     DB.notifications.filter(n=>n.customerId===custId&&!n.read).forEach(n=>{n.read=true;});
                     void saveSnapshot();
                   }, 900);

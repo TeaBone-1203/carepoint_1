@@ -322,7 +322,7 @@ async function resolveRole(user: User): Promise<{ role: NonNullable<UserRole>; l
   if (staffMatch) return { role: isPharmacyAdmin(staffMatch) ? 'pharmacyAdmin' : 'staff', localId: staffMatch.id };
   const adminMatch = DB.admins.find((a) => a.email === email);
   if (adminMatch) return { role: 'siteAdmin', localId: adminMatch.id };
-  const custMatch = DB.customers.find((c) => c.email === email);
+  const custMatch = DB.customers.find((c) => c.email === email && c.status === 'active');
   if (custMatch) return { role: 'customer', localId: custMatch.id };
 
   // 3 — New customer
@@ -443,6 +443,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_CHECKOUT', payload: { processing: true } });
 
     setTimeout(() => {
+      // Stock validation — never oversell. Abort and refund processing state.
+      for (const it of cart.items) {
+        const med = DB.medicines.find((m) => m.id === it.medId);
+        if (!med) { showToast('An item in your satchel is no longer available.', 'error'); dispatch({ type: 'SET_CHECKOUT', payload: { processing: false } }); return; }
+        if (it.qty > med.stock) {
+          showToast(`Only ${med.stock} of ${med.name} left — adjust quantity and try again.`, 'error');
+          dispatch({ type: 'SET_CHECKOUT', payload: { processing: false } });
+          return;
+        }
+      }
       const id = 'o' + counters.order++;
       const items = cart.items.map((it) => ({ medId: it.medId, qty: it.qty, price: it.price }));
       items.forEach((it) => {

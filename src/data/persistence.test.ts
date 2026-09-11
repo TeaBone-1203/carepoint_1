@@ -1,49 +1,60 @@
 // ============================================================
-//  CarePoint — Supabase persistence round-trip tests
-//  Mocks the supabase client (no network) and verifies that
-//  saveSnapshot / loadSnapshot mirror src/data/db.ts correctly:
-//    write all collections → mutate → apply read-back (dates revived)
+//  CarePoint — PostgreSQL persistence round-trip tests
+//  Mocks the supabase client (no network) as a set of relational
+//  tables and verifies that saveSnapshot / loadSnapshot mirror
+//  src/data/db.ts correctly across the postgres-schema tables:
+//    write all tables → mutate → apply read-back (dates revived)
 // ============================================================
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { store } = vi.hoisted(() => ({
-  store: new Map<string, unknown>(),
+const { tables } = vi.hoisted(() => ({
+  tables: new Map<string, any[]>(),
 }));
+
+// The "server" stores an independent copy of every row (Dates become
+// ISO strings on insert, like Postgres timestamps do).
+const serialize = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 vi.mock('../supabase', () => ({
   supabaseEnabled: true,
   supabase: {
-    from: () => ({
-      upsert: async (rows: Array<{ id: string; payload: unknown }>) => {
-        // Supabase stores JSONB — serialize on write so the "server"
-        // holds an independent copy (mirrors production behaviour).
-        for (const r of rows) store.set(r.id, JSON.parse(JSON.stringify(r.payload)));
+    from: (name: string) => ({
+      select: () => ({
+        // `select('key').limit(1)` — used by the pre-save schema check
+        limit: async () => ({ data: [], error: null }),
+        // `select('*')` — the load path awaits this directly
+        then: (resolve: (v: unknown) => void) =>
+          resolve({ data: (tables.get(name) ?? []).map((r) => ({ ...r })), error: null }),
+      }),
+      insert: async (rows: unknown[]) => {
+        tables.set(name, rows.map(serialize));
         return { error: null };
       },
-      select: async () => ({
-        data: [...store.entries()].map(([id, payload]) => ({ id, payload })),
-        error: null,
+      delete: () => ({
+        neq: async () => {
+          tables.set(name, []);
+          return { error: null };
+        },
       }),
     }),
   },
 }));
 
 import { DB } from './db';
-import { DB as DbRef } from './db';
-import { loadSnapshot, saveSnapshot, SNAPSHOT_COLLECTIONS } from './persistence';
+import { loadSnapshot, saveSnapshot } from './persistence';
 
-describe('Supabase persistence round-trip', () => {
+describe('Postgres persistence round-trip', () => {
   beforeEach(() => {
-    store.clear();
+    tables.clear();
   });
 
-  it('writes every collection and reads it back with Date fields revived', async () => {
-    // Create — full snapshot lands on the (mocked) server
+  it('writes the relational tables and reads them back with Date fields revived', async () => {
+    // Create — full relational snapshot lands on the (mocked) server
     expect(await saveSnapshot()).toBe(true);
-    expect(store.size).toBe(SNAPSHOT_COLLECTIONS.length);
+    expect(tables.get('pharmacies')!.length).toBeGreaterThan(0);
+    expect(tables.get('medicines')!.length).toBeGreaterThan(0);
 
     // Update — mutate a local order, persist, confirm the server sees it
-    const before = DB.orders.length;
     DB.orders.push({
       id: 'o-test-1', customerId: 'c1', pharmacyId: 'p1',
       items: [{ medId: 'm1', qty: 2, price: 85 }],
@@ -51,11 +62,12 @@ describe('Supabase persistence round-trip', () => {
       status: 'pending', createdAt: new Date('2024-01-02T03:04:05Z'),
     });
     expect(await saveSnapshot()).toBe(true);
-    const serverOrders = store.get('orders') as Array<{ id: string; createdAt: string }>;
+    const serverOrders = tables.get('orders') as Array<{ id: string; created_at: string }>;
     expect(serverOrders.some((o) => o.id === 'o-test-1')).toBe(true);
+    expect(tables.get('order_items')!.some((i) => i.order_id === 'o-test-1')).toBe(true);
 
     // Read — discard local in-memory changes, reload from server
-    DbRef.orders.length = before;
+    DB.orders = [] as any;
     expect(DB.orders.some((o) => o.id === 'o-test-1')).toBe(false);
     expect(await loadSnapshot()).toBe(true);
 
@@ -65,7 +77,7 @@ describe('Supabase persistence round-trip', () => {
     expect((restored!.createdAt as Date).toISOString()).toBe('2024-01-02T03:04:05.000Z');
   });
 
-  it('returns false when the server has no data yet', async () => {
+  it('returns false when the database has no data yet', async () => {
     expect(await loadSnapshot()).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
 //  CarePoint — Branch Portal (Staff / Pharmacy Admin)
 //  Tabs: Workbench · Shelf · Inventory · Returns · Counter · Sales · Notices · Profile
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PharmacyMapStaff } from '../components/PharmacyMap';
 // PharmacyMap now uses Leaflet + OpenStreetMap (no API key required)
@@ -19,6 +19,7 @@ import {
   pharmacyCustomerIds, logNotification,
   orderAddressText,
   notifyOrderEvent, medBrand, isPharmacyAdmin, roleLabel, logAudit,
+  purgeMedicineReferences,
 } from '../data/helpers';
 import { useApp } from '../context/AppContext';
 import { saveSnapshot } from '../data/persistence';
@@ -46,14 +47,15 @@ function Workbench({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}) {
   const all=DB.orders.filter(o=>o.pharmacyId===phId);
   const newOrders=all.filter(o=>o.status==='pending').length;
   const openMsgs=unreadForStaffPharmacy(phId);
-  const lowStock=DB.medicines.filter(m=>m.pharmacyId===phId&&m.stock<=10).length;
+  const lowStock=lowStockMedicines(phId).length+outOfStockMedicines(phId).length;
   const filtered=all.filter(o=>filter==='all'?true:filter==='toPrepare'?o.status==='pending':filter==='beingMade'?(o.status==='confirmed'||o.status==='ready'):o.status===filter).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime());
 
   if(openId){
-    const o=order(openId)!;
-    if(!order(openId))return<button className="cp-btn-link"onClick={()=>setOpenId(null)}>← Back</button>;
+    const o=order(openId);
+    if(!o)return<button className="cp-btn-link"onClick={()=>setOpenId(null)}>← Back</button>;
+    const oo = o;
     const idx=STATUS_FLOW.indexOf(o.status as any);
-    const next=STATUS_FLOW[idx+1];
+    const next=idx>=0&&idx<STATUS_FLOW.length-1?STATUS_FLOW[idx+1]:undefined;
     const ret=orderReturn(openId);
     function statusEvent(status:string):string|undefined{
       if(status==='confirmed')return 'orderConfirmed';
@@ -62,9 +64,9 @@ function Workbench({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}) {
       if(status==='cancelled')return 'orderCancelled';
       return undefined;
     }
-    function advanceOrder(){const ni=STATUS_FLOW.indexOf(o.status as any);if(ni<STATUS_FLOW.length-1){o.status=STATUS_FLOW[ni+1];toast('Order marked '+STATUS_LABEL[o.status],'success');const ev=statusEvent(o.status);if(ev)notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:o.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
-    function cancelOrder(){if(!window.confirm('Cancel this order?'))return;o.items.forEach(it=>{const m=medicine(it.medId);if(m){m.stock+=it.qty;m.sold=Math.max(0,(m.sold||0)-it.qty);}});o.status='cancelled';toast('Order cancelled.','success');notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:'cancelled'},'orderCancelled');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
-    function applyStatus(val:string){if(val==='cancelled'){cancelOrder();return;}o.status=val as any;toast('Status updated.','success');const ev=statusEvent(o.status);if(ev)notifyOrderEvent({id:o.id,pharmacyId:o.pharmacyId,customerId:o.customerId,status:o.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+    function advanceOrder(){const ni=STATUS_FLOW.indexOf(oo.status as any);if(ni<0)return;if(ni<STATUS_FLOW.length-1){oo.status=STATUS_FLOW[ni+1];toast('Order marked '+STATUS_LABEL[oo.status],'success');const ev=statusEvent(oo.status);if(ev)notifyOrderEvent({id:oo.id,pharmacyId:oo.pharmacyId,customerId:oo.customerId,status:oo.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
+    function cancelOrder(){if(oo.status==='cancelled')return;if(!window.confirm('Cancel this order?'))return;oo.items.forEach(it=>{const m=medicine(it.medId);if(m){m.stock+=it.qty;m.sold=Math.max(0,(m.sold||0)-it.qty);}});oo.status='cancelled';toast('Order cancelled.','success');notifyOrderEvent({id:oo.id,pharmacyId:oo.pharmacyId,customerId:oo.customerId,status:'cancelled'},'orderCancelled');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
+    function applyStatus(val:string){if(val==='cancelled'){cancelOrder();return;}oo.status=val as any;toast('Status updated.','success');const ev=statusEvent(oo.status);if(ev)notifyOrderEvent({id:oo.id,pharmacyId:oo.pharmacyId,customerId:oo.customerId,status:oo.status},ev);void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
     return(
       <div>
         <button className="cp-btn-link"onClick={()=>setOpenId(null)}>← Back to Workbench</button>
@@ -145,7 +147,7 @@ function Workbench({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}) {
 }
 
 // ── Tab: The Shelf (Listings + Product Form) ─────────────────
-function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
+function Shelf({phId,carts,dispatch,toast}:{phId:string;carts:Record<string,{items:{medId:string;qty:number;price:number}[]}>;dispatch:any;toast:any}){
   const [filter,setFilter]=useState('all');
   const [editId,setEditId]=useState<string|null>(null); // 'new' | medId | null
   const [draftImages,setDraftImages]=useState<string[]>([]);
@@ -197,7 +199,7 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
 
       {/* Inline product form */}
       {editId&&(
-        <div className="cp-card"style={{marginBottom:16,border:'1.5px solid var(--cp-terracotta)'}}>
+        <div key={editId} className="cp-card"style={{marginBottom:16,border:'1.5px solid var(--cp-terracotta)'}}>
           <div className="cp-row-between">
             <h3 style={{margin:0,fontSize:15}}>{editId==='new'?'Add Product':`Edit — ${editMed?.name??''}`}</h3>
             <button className="cp-btn-link"onClick={()=>{setEditId(null);setDraftImages([]);}}>Cancel</button>
@@ -210,7 +212,7 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
               <div className="cp-field"><label>Description</label><textarea id="medDesc"rows={3}placeholder="Short description"defaultValue={editMed?.description??''}/></div>
               <div className="cp-field"><label>Category</label>
                 <select id="medCat"defaultValue={editMed?.category??CATEGORIES[0]}>
-                  {[...CATEGORIES,'Prescription'].map(c=><option key={c}value={c}>{c}</option>)}
+                  {CATEGORIES.map(c=><option key={c}value={c}>{c}</option>)}
                 </select>
               </div>
               <div style={{display:'flex',gap:10}}>
@@ -264,7 +266,7 @@ function Shelf({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
                 <td className="col-actions" style={{display:'flex',gap:4,justifyContent:'flex-end',flexWrap:'wrap'}}>
                   <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{setEditId(m.id);setDraftImages((m.images??[]).slice());}}>Edit</button>
                   <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>{m.status=(m.status||'active')==='active'?'inactive':'active';toast(m.name+' is now '+(m.status==='active'?'active':'inactive')+'.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>{(m.status||'active')==='active'?'Deactivate':'Activate'}</button>
-                  <button className="cp-btn cp-btn-danger cp-btn-sm"onClick={()=>{if(!window.confirm('Remove this listing?'))return;DB.medicines=DB.medicines.filter(x=>x.id!==m.id);toast('Removed.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>Delete</button>
+                  <button className="cp-btn cp-btn-danger cp-btn-sm"onClick={()=>{if(!window.confirm('Remove this listing?'))return;DB.medicines=DB.medicines.filter(x=>x.id!==m.id);const cleaned=purgeMedicineReferences(m.id,carts);dispatch({type:'REPLACE_CARTS',carts:cleaned});toast('Removed.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}>Delete</button>
                 </td>
               </tr>);
             })}
@@ -344,7 +346,7 @@ function Returns({phId,dispatch,toast}:{phId:string;dispatch:any;toast:any}){
   const all=pharmacyReturns(phId).sort((a,b)=>b.at.getTime()-a.at.getTime());
   const list=all.filter(r=>filter==='all'?true:r.status===filter);
   const refunded=all.filter(r=>r.status==='refunded');
-  const refundTotal=refunded.reduce((s,r)=>s+(r as any).refundAmount||0,0);
+  const refundTotal=refunded.reduce((s,r)=>s+((r as any).refundAmount||0),0);
   function approve(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='approved';toast('Return approved.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
   function reject(id:string){const r=DB.returns.find(x=>x.id===id);if(r){r.status='rejected';toast('Return rejected.','success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}}
   function refund(id:string){const r=DB.returns.find(x=>x.id===id);if(!r)return;const amt=window.prompt('Refund amount:');if(amt===null)return;const n=parseFloat(amt);if(isNaN(n)||n<0){toast('Enter a valid amount.','error');return;}(r as any).refundAmount=n;r.status='refunded';toast(`Refund of ${money(n)} issued.`,'success');void saveSnapshot();dispatch({type:'SET_SEARCH',payload:{}});}
@@ -695,11 +697,19 @@ function Team({phId,selfId,dispatch,toast}:{phId:string;selfId:string;dispatch:a
             {team.map(s=>{
               const badge=s.status==='active'
                 ? s.role==='pharmacyAdmin'?<span className="cp-badge cp-badge-active">Pharmacy Admin</span>:<span className="cp-badge cp-badge-confirmed">Staff</span>
+                : s.status==='pending'
+                  ? <span className="cp-badge cp-badge-pending">Pending</span>
+                  : s.status==='rejected'
+                    ? <span className="cp-badge cp-badge-cancelled">Rejected</span>
+                    : <span className="cp-badge cp-badge-inactive">Disabled</span>;
+              const statusBadge=s.status==='active'?<span className="cp-badge cp-badge-active">Active</span>
+                : s.status==='pending'?<span className="cp-badge cp-badge-pending">Pending</span>
+                : s.status==='rejected'?<span className="cp-badge cp-badge-cancelled">Rejected</span>
                 : <span className="cp-badge cp-badge-inactive">Disabled</span>;
               return(<tr key={s.id}>
                 <td><div className="cp-cell-thumb"><div className="cp-med-picture"style={{width:40,height:40,borderRadius:'50%',background:'var(--cp-sage-tint)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>👤</div><span>{s.name}{s.id===selfId&&<span style={{fontSize:11,color:'var(--cp-walnut-faint)'}}> · you</span>}<div className="cp-hint">{s.email}</div></span></div></td>
                 <td>{badge}</td>
-                <td className="text-center"><span className={`cp-badge ${s.status==='active'?'cp-badge-active':'cp-badge-inactive'}`}>{s.status==='active'?'Active':'Disabled'}</span></td>
+                <td className="text-center">{statusBadge}</td>
                 <td className="col-actions"style={{display:'flex',gap:4,flexWrap:'wrap',justifyContent:'flex-end'}}>
                   <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>toggleRole(s)}>{s.role==='pharmacyAdmin'?'Make staff':'Make admin'}</button>
                   <button className="cp-btn cp-btn-outline cp-btn-sm"onClick={()=>toggleActive(s)}>{s.status==='active'?'Disable':'Enable'}</button>
@@ -814,11 +824,12 @@ const BranchPortal: React.FC = () => {
   const { state, dispatch, logout, toast } = useApp();
 
   const staffId = state.session.staff;
-  if (!staffId) { navigate('/auth', { replace: true }); return null; }
-
-  const staff = staffMember(staffId);
+  const staff = staffMember(staffId ?? '');
   const ph    = staff ? pharmacy(staff.pharmacyId) : undefined;
-  if (!staff || !ph) { navigate('/auth', { replace: true }); return null; }
+  useEffect(() => {
+    if (!staffId || !staff || !ph) navigate('/auth', { replace: true });
+  }, [staffId, staff, ph, navigate]);
+  if (!staffId || !staff || !ph) return null;
 
   const view = state.staff.view;
   const pendingReturns = pharmacyReturns(ph.id).filter(r=>r.status==='requested').length;
@@ -873,7 +884,7 @@ const BranchPortal: React.FC = () => {
         {/* Content */}
         <div style={{ maxWidth:1180, margin:'0 auto', padding:'28px 16px 80px' }}>
           {view === 'orders'    && <Workbench phId={ph.id} dispatch={dispatch} toast={toast} />}
-          {view === 'listings'  && <Shelf     phId={ph.id} dispatch={dispatch} toast={toast} />}
+          {view === 'listings'  && <Shelf     phId={ph.id} carts={state.carts} dispatch={dispatch} toast={toast} />}
           {view === 'inventory' && <Inventory phId={ph.id} dispatch={dispatch} toast={toast} />}
           {view === 'returns'   && <Returns   phId={ph.id} dispatch={dispatch} toast={toast} />}
           {view === 'messages'  && <Counter   phId={ph.id} dispatch={dispatch} toast={toast} />}

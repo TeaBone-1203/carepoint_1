@@ -32,7 +32,8 @@ const MessagesPage: React.FC = () => {
 
   function openThread(id: string) {
     const t = DB.threads.find((x) => x.id === id);
-    if (t) t.unreadForCustomer = false;
+    if (!t) { toast('That conversation no longer exists.','error'); setOpenThreadId(null); return; }
+    t.unreadForCustomer = false;
     setOpenThreadId(id);
     setMsgText('');
     setPendingImage(null);
@@ -52,11 +53,12 @@ const MessagesPage: React.FC = () => {
 
   function sendMessage(threadId: string) {
     const t = DB.threads.find((x) => x.id === threadId);
+    if (!t) { toast('This conversation has been closed or removed.','error'); setOpenThreadId(null); return; }
     const text = msgText.trim();
     const image = pendingImage?.dataUrl ?? null;
     if (!text && !image) { toast('Type a message or attach a photo.','error'); return; }
-    t?.messages.push({ from:'customer', text, image: image ?? undefined, at:new Date() } as any);
-    if (t) { t.unreadForStaff = true; t.unreadForCustomer = false; }
+    t.messages.push({ from:'customer', text, image: image ?? undefined, at:new Date() } as any);
+    t.unreadForStaff = true; t.unreadForCustomer = false;
     setPendingImage(null);
     setMsgText('');
     toast(image ? 'Rx photo sent.' : 'Message sent.','success');
@@ -76,7 +78,22 @@ const MessagesPage: React.FC = () => {
   // ── Thread detail view ───────────────────────────────────
   if (openThreadId) {
     const t = DB.threads.find((x) => x.id === openThreadId);
-    if (!t) return null;
+    if (!t) {
+      return (
+        <div className="cp-page">
+          <div style={{ overflowY: "auto" }}>
+            <div style={{ maxWidth:700, margin:'0 auto', padding:'28px 16px' }}>
+              <button className="cp-btn-link" onClick={() => setOpenThreadId(null)}>← Back</button>
+              <div className="cp-empty" style={{ marginTop:30 }}>
+                <div className="cp-empty-title">Conversation removed</div>
+                <div className="cp-empty-sub">This conversation is no longer available.</div>
+                <button className="cp-btn cp-btn-primary" style={{ marginTop:16 }} onClick={() => setOpenThreadId(null)}>Back to Messages</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="cp-page">
         {/* ── Lightbox overlay ─────────────────────────── */}

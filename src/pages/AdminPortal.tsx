@@ -22,13 +22,14 @@ function Registry({ actor, dispatch, toast }: { actor: string; dispatch: any; to
   function approve(staffId: string) {
     const s = staffMember(staffId);
     if (!s) return;
+    const ph = pharmacy(s.pharmacyId);
+    if (!ph) { toast('Pharmacy record is missing — cannot approve.', 'error'); return; }
     if (!window.confirm('Approve this pharmacy?')) return;
     s.status = 'active';
     s.role = 'pharmacyAdmin';   // the registrant becomes the Pharmacy Admin
-    const ph = pharmacy(s.pharmacyId);
-    if (ph) ph.status = 'approved';
-    logAudit(actor, 'Approved pharmacy ' + (ph ? ph.name : s.name) + ' — ' + s.name + ' onboarded as Pharmacy Admin');
-    toast((ph ? ph.name : 'Pharmacy') + ' approved and now live!', 'success');
+    if (ph.status === 'pending' || ph.status === 'rejected') ph.status = 'approved';
+    logAudit(actor, 'Approved pharmacy ' + ph.name + ' — ' + s.name + ' onboarded as Pharmacy Admin');
+    toast(ph.name + ' approved and now live!', 'success');
     void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
@@ -39,14 +40,15 @@ function Registry({ actor, dispatch, toast }: { actor: string; dispatch: any; to
     if (!window.confirm('Reject this registration?')) return;
     s.status = 'rejected';
     const ph = pharmacy(s.pharmacyId);
-    if (ph) ph.status = 'rejected' as any;
+    if (ph && ph.status === 'pending') ph.status = 'rejected';
+    DB.staff.filter(x => x.pharmacyId === s.pharmacyId && x.status === 'pending').forEach(x => { x.status = 'rejected'; });
     logAudit(actor, 'Rejected pharmacy ' + (ph ? ph.name : s.name));
     toast('Registration rejected.', 'success');
     void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
   }
 
-  function setPharmacyStatus(phId: string, next: 'approved' | 'rejected') {
+  function setPharmacyStatus(phId: string, next: 'approved' | 'suspended') {
     const ph = pharmacy(phId);
     if (!ph) return;
     if (!window.confirm((next === 'approved' ? 'Activate ' : 'Suspend ') + ph.name + '?')) return;
@@ -117,7 +119,7 @@ function Registry({ actor, dispatch, toast }: { actor: string; dispatch: any; to
                     <td className="text-center">{phStatusBadge(ph.status)}</td>
                     <td className="col-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       {ph.status === 'approved'
-                        ? <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setPharmacyStatus(ph.id, 'rejected')}>Suspend</button>
+                        ? <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setPharmacyStatus(ph.id, 'suspended')}>Suspend</button>
                         : <button className="cp-btn cp-btn-sage cp-btn-sm" onClick={() => setPharmacyStatus(ph.id, 'approved')}>Activate</button>}
                     </td>
                   </tr>
@@ -141,9 +143,12 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
     const rec = type === 'customer' ? customer(id) : staffMember(id);
     if (!rec) return;
     if (type === 'staff' && rec.status === 'pending') { toast('Cannot toggle pending — approve or reject first.', 'error'); return; }
-    rec.status = rec.status === 'active' ? 'disabled' as any : 'active';
-    if (type === 'staff') { const ph = pharmacy((rec as any).pharmacyId); if (ph) ph.status = rec.status === 'active' ? 'approved' : 'rejected' as any; }
-    logAudit(actor, (rec.status === 'active' ? 'Enabled ' : 'Disabled ') + (type === 'customer' ? 'customer' : 'pharmacy') + ' account ' + rec.name);
+    if (type === 'customer') {
+      rec.status = rec.status === 'active' ? 'inactive' : 'active';
+    } else {
+      rec.status = rec.status === 'active' ? 'disabled' : 'active';
+    }
+    logAudit(actor, (rec.status === 'active' ? 'Enabled ' : 'Disabled ') + (type === 'customer' ? 'customer' : 'staff') + ' account ' + rec.name);
     toast('Account ' + (rec.status === 'active' ? 'activated' : 'disabled') + '.', 'success');
     void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
@@ -156,15 +161,17 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
       const c = customer(id); if (c) removedName = c.name;
       DB.customers = DB.customers.filter(c => c.id !== id);
       DB.orders = DB.orders.filter(o => o.customerId !== id);
+      DB.reviews = DB.reviews.filter(r => r.customerId !== id);
+      DB.notifications = DB.notifications.filter(n => n.customerId !== id);
+      DB.threads = DB.threads.filter(t => t.customerId !== id);
+      DB.returns = DB.returns.filter(r => r.customerId !== id);
     } else {
       const s = staffMember(id);
-      if (s) {
-        const ph = pharmacy(s.pharmacyId);
-        if (ph) { removedName = ph.name; DB.pharmacies = DB.pharmacies.filter(p => p.id !== ph.id); DB.medicines = DB.medicines.filter(m => m.pharmacyId !== ph.id); }
-        DB.staff = DB.staff.filter(x => x.id !== id);
-      }
+      if (!s) return;
+      removedName = s.name;
+      DB.staff = DB.staff.filter(x => x.id !== id);
     }
-    logAudit(actor, 'Removed ' + (type === 'customer' ? 'customer' : 'pharmacy') + ' account ' + removedName);
+    logAudit(actor, 'Removed ' + (type === 'customer' ? 'customer' : 'staff') + ' account ' + removedName);
     toast('Account removed.', 'success');
     void saveSnapshot();
     dispatch({ type: 'SET_SEARCH', payload: {} });
@@ -256,7 +263,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
                         <div className="cp-field" style={{ flex: 1, minWidth: 140, marginBottom: 0 }}><label>Name</label><input id="admCustName" type="text" defaultValue={c.name} /></div>
                         <div className="cp-field" style={{ flex: 1, minWidth: 170, marginBottom: 0 }}><label>Email</label><input id="admCustEmail" type="email" defaultValue={c.email} /></div>
                         <div className="cp-field" style={{ minWidth: 130, marginBottom: 0 }}><label>Status</label>
-                          <select id="admCustStatus" defaultValue={c.status}><option value="active">Active</option><option value="disabled">Suspended</option></select>
+                          <select id="admCustStatus" defaultValue={c.status}><option value="active">Active</option><option value="inactive">Suspended</option></select>
                         </div>
                         <button className="cp-btn cp-btn-primary cp-btn-sm" onClick={() => saveCustomer(c.id)}>Save</button>
                         <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setEditCustId(null)}>Cancel</button>
@@ -292,7 +299,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
             <div className="cp-field" style={{ flex: 1, minWidth: 140, marginBottom: 0 }}><label>Name</label><input id="newAdminName" type="text" placeholder="Full name" /></div>
             <div className="cp-field" style={{ flex: 1, minWidth: 170, marginBottom: 0 }}><label>Email</label><input id="newAdminEmail" type="email" placeholder="admin@carepoint.ph" /></div>
-            <div className="cp-field" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}><label>Password</label><input id="newAdminPass" type="text" placeholder="Temporary" /></div>
+            <div className="cp-field" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}><label>Password</label><input id="newAdminPass" type="password" placeholder="Temporary" /></div>
             <button className="cp-btn cp-btn-primary cp-btn-sm" onClick={addAdmin}>Create</button>
             <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setAddingAdmin(false)}>Cancel</button>
           </div>
@@ -308,7 +315,7 @@ function Accounts({ adminId, actor, dispatch, toast }: { adminId: string; actor:
                       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                         <div className="cp-field" style={{ flex: 1, minWidth: 140, marginBottom: 0 }}><label>Name</label><input id="admName" type="text" defaultValue={a.name} /></div>
                         <div className="cp-field" style={{ flex: 1, minWidth: 170, marginBottom: 0 }}><label>Email</label><input id="admEmail" type="email" defaultValue={a.email} /></div>
-                        <div className="cp-field" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}><label>Password</label><input id="admPass" type="text" defaultValue={(a as any).password ?? ''} /></div>
+                        <div className="cp-field" style={{ flex: 1, minWidth: 130, marginBottom: 0 }}><label>Password</label><input id="admPass" type="password" defaultValue={(a as any).password ?? ''} /></div>
                         <button className="cp-btn cp-btn-primary cp-btn-sm" onClick={() => saveAdmin(a.id)}>Save</button>
                         <button className="cp-btn cp-btn-outline cp-btn-sm" onClick={() => setEditAdminId(null)}>Cancel</button>
                       </div>
@@ -443,7 +450,7 @@ function HerbalIndex({ actor, dispatch, toast }: { actor: string; dispatch: any;
             <div className="cp-field" style={{ marginBottom: 0 }}><label>Brand</label><input id="idxBrand" type="text" defaultValue={editMed ? medBrand(editMed) : ''} placeholder="e.g. CarePoint Generics" /></div>
             <div className="cp-field" style={{ marginBottom: 0 }}><label>Category</label>
               <select id="idxCat" defaultValue={editMed?.category ?? CATEGORIES[0]}>
-                {[...CATEGORIES, 'Prescription'].map(c => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="cp-field" style={{ marginBottom: 0 }}><label>Price (₱)</label><input id="idxPrice" type="number" min={0} defaultValue={editMed?.price ?? ''} /></div>
@@ -527,12 +534,15 @@ function AllOrders() {
 function flagTargetLabel(f: { targetType?: string; targetId?: string }) {
   const t = f.targetType ?? 'account';
   const id = f.targetId ?? '';
-  if (t === 'pharmacy') { const p = pharmacy(id); return { icon: '🏥', label: p ? p.name : id, sub: p ? p.location : '' }; }
-  if (t === 'medicine') { const m = medicine(id); return { icon: '💊', label: m ? m.name : id, sub: m ? pharmacyName(m.pharmacyId) : '' }; }
-  if (t === 'order')    { const o = DB.orders.find(o => o.id === id); return { icon: '🧾', label: o ? 'Order #' + o.id.replace('o', '') : id, sub: o ? customerName(o.customerId) : '' }; }
-  if (t === 'customer') { const c = customer(id); return { icon: '👤', label: c ? c.name : id, sub: c ? c.email : '' }; }
+  const fallback = { label: id || '(unknown)', sub: '' };
+  if (t === 'pharmacy') { const p = pharmacy(id); return { icon: '🏥', label: p ? p.name : fallback.label, sub: p ? p.location : '' }; }
+  if (t === 'medicine') { const m = medicine(id); return { icon: '💊', label: m ? m.name : fallback.label, sub: m ? pharmacyName(m.pharmacyId) : '' }; }
+  if (t === 'order')    { const o = DB.orders.find(o => o.id === id); return { icon: '🧾', label: o ? 'Order #' + o.id.replace('o', '') : fallback.label, sub: o ? customerName(o.customerId) : '' }; }
+  if (t === 'customer') { const c = customer(id); return { icon: '👤', label: c ? c.name : fallback.label, sub: c ? c.email : '' }; }
+  if (t === 'staff')    { const s = staffMember(id); return { icon: '👩‍⚕️', label: s ? s.name : fallback.label, sub: s ? s.email : '' }; }
+  if (t === 'admin')    { const a = adminUser(id); return { icon: '🔑', label: a ? a.name : fallback.label, sub: a ? a.email : '' }; }
   const s = staffMember(id) ?? adminUser(id) ?? customer(id);
-  return { icon: '🏥', label: s ? s.name : id, sub: '' };
+  return { icon: '👤', label: s ? s.name : fallback.label, sub: '' };
 }
 
 function Flags({ dispatch, toast }: { dispatch: any; toast: any }) {

@@ -95,7 +95,7 @@ const AuthPage: React.FC = () => {
         setError('Registration was rejected. Contact support.'); return true;
       }
     }
-    if (role !== 'siteAdmin' && (user as any).status === 'disabled') {
+    if (role !== 'siteAdmin' && ((user as any).status === 'disabled' || (user as any).status === 'inactive')) {
       setError('Account disabled. Contact support.'); return true;
     }
     dispatch({ type: 'AUTH_RESOLVED', user: null, role, localId: user.id });

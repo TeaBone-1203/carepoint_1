@@ -1,7 +1,7 @@
 // ============================================================
 //  CarePoint — Checkout page
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DB } from '../../data/db';
 import {
@@ -21,12 +21,29 @@ const CheckoutPage: React.FC = () => {
   const [cardCvv,     setCardCvv]     = useState('');
   const [eWallet,     setEWallet]     = useState('');
   const [ppEmail,     setPpEmail]     = useState('');
+  const [placed,      setPlaced]      = useState(false);
 
   const custId = state.session.customer;
-  if (!custId) { navigate('/auth', { replace: true }); return null; }
 
   const cart = cartKey ? state.carts[cartKey] : undefined;
-  if (!cart || cart.items.length === 0) { navigate('/cart', { replace: true }); return null; }
+  const cartEmpty = !cart || cart.items.length === 0;
+
+  // Redirect in effects, never during render — render-phase navigate()
+  // aborts React's commit and can leave the tree on the loading screen.
+  useEffect(() => {
+    if (!custId) navigate('/auth', { replace: true });
+  }, [custId, navigate]);
+
+  useEffect(() => {
+    if (custId && cartEmpty) {
+      // placeOrder() clears the cart; a just-placed order must land on
+      // /orders, not bounce back to the (now empty) /cart.
+      navigate(placed ? '/orders' : '/cart', { replace: true });
+    }
+  }, [custId, cartEmpty, placed, navigate]);
+
+  if (!custId) return null;
+  if (cartEmpty) return null;
 
   const cust      = customer(custId);
   const ph        = pharmacy(cart.pharmacyId);
@@ -66,8 +83,7 @@ const CheckoutPage: React.FC = () => {
       }
     }
     placeOrder();
-    // Navigation to /orders is handled by placeOrder → dispatch({ type:'SET_CUSTOMER', payload:{ view:'orders' }})
-    // which triggers the useEffect in HomePage.tsx. Do NOT navigate here — the order hasn't been created yet.
+    setPlaced(true);
   }
 
   return (

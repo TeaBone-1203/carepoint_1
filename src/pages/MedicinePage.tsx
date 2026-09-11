@@ -264,8 +264,6 @@ const MedicinePage: React.FC = () => {
                   background:`linear-gradient(140deg,${gallerySlots[galleryIdx].g1},${gallerySlots[galleryIdx].g2})`,
                   cursor:'zoom-in' }}
                 onClick={() => {
-                  // Build a data-URI placeholder so lightbox always has something to show
-                  const slot = gallerySlots[galleryIdx];
                   // If the medicine has a real image URL at this index, prefer it
                   const realImg = med.images?.[galleryIdx];
                   if (realImg) { openLightbox(realImg); }

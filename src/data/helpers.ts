@@ -34,6 +34,7 @@ export const CATEGORIES = [
   'First Aid',
   'Digestive',
   'Skin Care',
+  'Prescription',
 ];
 
 export const CAT_ICON: Record<string, string> = {
@@ -543,6 +544,7 @@ export function orderItemMed(it: { medId: string; price: number }) {
       id: it.medId,
       name: 'Delisted item',
       category: 'Pain Relief',
+      pharmacyId: '',
       price: it.price,
       stock: 0,
       prescription: false,

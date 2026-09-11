@@ -30,7 +30,7 @@ function getMedVis(name: string) {
 
 const CartPage: React.FC = () => {
   const navigate = useNavigate();
-  const { state, dispatch, cartKey } = useApp();
+  const { state, dispatch, cartKey, toast } = useApp();
 
   const custId = state.session.customer;
   if (!custId) { navigate('/auth', { replace: true }); return null; }
@@ -74,7 +74,8 @@ const CartPage: React.FC = () => {
     if (newQty <= 0) {
       dispatch({ type:'REMOVE_FROM_CART', cartKey, medId });
     } else if (med && newQty > med.stock) {
-      // cap at stock
+      dispatch({ type:'UPDATE_CART_QTY', cartKey, medId, qty: med.stock });
+      toast(`Only ${med.stock} of ${med.name} in stock.`, 'error');
     } else {
       dispatch({ type:'UPDATE_CART_QTY', cartKey, medId, qty: newQty });
     }

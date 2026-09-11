@@ -94,8 +94,7 @@ const CatalogPage: React.FC = () => {
     const ph  = params.get('pharmacy');
     if (cat) dispatch({ type:'SET_SEARCH', payload:{ category: cat } });
     if (ph)  dispatch({ type:'SET_SEARCH', payload:{ pharmacy: ph  } });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [params, dispatch]);
 
   const isCustomer = state.activeRole === 'customer' && !!state.session.customer;
   const custId     = state.session.customer;
